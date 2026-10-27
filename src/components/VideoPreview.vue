@@ -109,6 +109,7 @@ watch(() => props.src, () => {
 .preview-wrap {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
 }
 .stage {

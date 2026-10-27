@@ -2,10 +2,20 @@
 import { computed, ref } from 'vue'
 import VideoUploader from './components/VideoUploader.vue'
 import VideoPreview from './components/VideoPreview.vue'
-import Timeline from './components/Timeline.vue'
-import ControlsPanel from './components/ControlsPanel.vue'
+import ToolNav, { type ToolDef } from './components/ToolNav.vue'
+import TrimPanel from './components/TrimPanel.vue'
+import VolumeSpeedPanel from './components/VolumeSpeedPanel.vue'
+import LogoPanel from './components/LogoPanel.vue'
 import { useFfmpeg } from './ffmpeg/useFfmpeg'
 import type { LogoRegion } from './ffmpeg/commandBuilder'
+
+const TOOLS: ToolDef[] = [
+  { id: 'trim', label: 'Cortar', icon: 'cut' },
+  { id: 'volume-speed', label: 'Volumen y velocidad', icon: 'speed' },
+  { id: 'logo', label: 'Quitar logo', icon: 'logo' },
+]
+
+const activeTool = ref<string>('trim')
 
 const file = ref<File | null>(null)
 const sourceUrl = ref('')
@@ -36,6 +46,7 @@ function onFileSelected(selected: File) {
   logoEditing.value = false
   resultUrl.value = ''
   errorMessage.value = ''
+  activeTool.value = 'trim'
 }
 
 function onDuration(seconds: number) {
@@ -45,6 +56,13 @@ function onDuration(seconds: number) {
 
 function toggleLogoEditing() {
   logoEditing.value = !logoEditing.value
+}
+
+// Dibujar la región de logo solo tiene sentido mientras esa herramienta
+// está activa; si el usuario cambia de herramienta, se sale del modo dibujo.
+function onToolChange(tool: string) {
+  activeTool.value = tool
+  if (tool !== 'logo') logoEditing.value = false
 }
 
 async function onExport() {
@@ -86,56 +104,66 @@ const statusText = computed(() => {
       </p>
     </header>
 
-    <main>
-      <VideoUploader v-if="!file" @selected="onFileSelected" />
+    <div class="layout">
+      <ToolNav :tools="TOOLS" :model-value="activeTool" :disabled="!file" @update:model-value="onToolChange" />
 
-      <template v-else>
-        <section class="workspace">
+      <main class="workspace">
+        <VideoUploader v-if="!file" @selected="onFileSelected" />
+
+        <template v-else>
           <VideoPreview
             :src="sourceUrl"
-            :logo-editing="logoEditing"
+            :logo-editing="logoEditing && activeTool === 'logo'"
             v-model:logo-region="logoRegion"
             @duration="onDuration"
           />
 
-          <Timeline
-            v-if="duration > 0"
+          <TrimPanel
+            v-if="activeTool === 'trim'"
             :duration="duration"
             v-model:trim-start="trimStart"
             v-model:trim-end="trimEnd"
           />
 
-          <ControlsPanel
+          <VolumeSpeedPanel
+            v-else-if="activeTool === 'volume-speed'"
             v-model:volume="volume"
             v-model:speed="speed"
-            :logo-editing="logoEditing"
-            :has-logo-region="logoRegion !== null"
-            :exporting="exporting"
-            :export-progress="progress"
-            @toggle-logo-editing="toggleLogoEditing"
-            @clear-logo-region="logoRegion = null"
-            @export="onExport"
           />
 
-          <p class="status">{{ statusText }}</p>
+          <LogoPanel
+            v-else
+            :logo-editing="logoEditing"
+            :has-logo-region="logoRegion !== null"
+            @toggle-logo-editing="toggleLogoEditing"
+            @clear-logo-region="logoRegion = null"
+          />
+
+          <div class="export-bar">
+            <button class="export" type="button" :disabled="exporting" @click="onExport">
+              {{ exporting ? `Procesando… ${Math.round(progress * 100)}%` : 'Exportar video' }}
+            </button>
+            <p class="status">{{ statusText }}</p>
+          </div>
+
           <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
 
           <div v-if="resultUrl" class="result">
             <h2>Resultado</h2>
             <video :src="resultUrl" controls />
-            <a class="export" :href="resultUrl" download="video-editado.mp4">Descargar video</a>
+            <a class="download" :href="resultUrl" download="video-editado.mp4">Descargar video</a>
           </div>
-        </section>
 
-        <button class="change-file" type="button" @click="file = null">Elegir otro video</button>
-      </template>
-    </main>
+          <button class="change-file" type="button" @click="file = null">Elegir otro video</button>
+        </template>
+      </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .app {
-  max-width: 820px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 32px 20px 64px;
 }
@@ -146,12 +174,34 @@ header h1 {
 .subtitle {
   color: var(--text-dim);
   margin: 0 0 28px;
-  max-width: 560px;
+  max-width: 640px;
+}
+.layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
 }
 .workspace {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+.export-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+button.export {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .status {
   color: var(--text-dim);
@@ -167,13 +217,19 @@ header h1 {
   padding-top: 18px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 12px;
+}
+.result h2 {
+  align-self: flex-start;
+  margin: 0;
+  font-size: 1rem;
 }
 .result video {
   max-width: 100%;
   border-radius: 10px;
 }
-.result .export {
+.result .download {
   display: inline-block;
   text-align: center;
   background: var(--accent);
@@ -185,11 +241,18 @@ header h1 {
   width: fit-content;
 }
 .change-file {
-  margin-top: 20px;
+  align-self: flex-start;
+  margin-top: 4px;
   background: transparent;
   color: var(--text-dim);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 14px;
+}
+
+@media (max-width: 720px) {
+  .layout {
+    flex-direction: column;
+  }
 }
 </style>
