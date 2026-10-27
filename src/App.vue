@@ -79,7 +79,7 @@ const statusText = computed(() => {
 <template>
   <div class="app">
     <header>
-      <h1>Editor de video</h1>
+      <h1>ClipEditor</h1>
       <p class="subtitle">
         Corta, ajusta volumen/velocidad y quita logos — todo dentro de tu navegador, con FFmpeg
         compilado a WebAssembly (igual técnica que usa 123apps).

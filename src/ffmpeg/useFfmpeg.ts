@@ -1,5 +1,5 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { toBlobURL } from '@ffmpeg/util'
+import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { ref } from 'vue'
 import { buildFfmpegArgs, type EditSettings } from './commandBuilder'
 
@@ -49,7 +49,6 @@ export function useFfmpeg() {
     const outputName = 'output.mp4'
 
     progress.value = 0
-    const { fetchFile } = await import('@ffmpeg/util')
     await ffmpeg.writeFile(inputName, await fetchFile(file))
 
     const args = buildFfmpegArgs(inputName, outputName, settings)

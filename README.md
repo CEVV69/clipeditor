@@ -1,4 +1,6 @@
-# Editor de video
+# ClipEditor
+
+**Link listo para usar:** https://cevv69.github.io/clipeditor/
 
 Editor de video que corre **enteramente en el navegador**: nada se sube a un
 servidor. Usa la misma técnica que el editor de video de
@@ -15,7 +17,11 @@ tipo ffmpeg sobre el archivo elegido.
   aplica el filtro `delogo` de ffmpeg sobre esa región.
 - Exportar y descargar el resultado en `.mp4`.
 
-## Cómo correrlo
+## Cómo usarlo
+
+Solo abre https://cevv69.github.io/clipeditor/ — no hay que instalar nada.
+
+## Cómo desarrollarlo (opcional, para modificar el código)
 
 ```bash
 npm install
@@ -34,6 +40,8 @@ FFmpeg (WebAssembly, unos 25 MB) desde un CDN público; después queda cacheado.
 - `src/ffmpeg/useFfmpeg.ts` — carga `@ffmpeg/ffmpeg` y ejecuta la edición.
 - `src/components/` — subida de archivo, previsualización con selector de
   región de logo, línea de tiempo de corte y panel de controles.
+- `.github/workflows/deploy.yml` — publica `dist/` en GitHub Pages en cada
+  push a `main`.
 
 ## Limitaciones conocidas
 
