@@ -63,9 +63,16 @@ function toggleLogoEditing() {
 
 // Dibujar la región de logo solo tiene sentido mientras esa herramienta
 // está activa; si el usuario cambia de herramienta, se sale del modo dibujo.
+// El resultado exportado también se oculta: quedó atado a los ajustes de
+// la herramienta anterior y ya no refleja lo que se está editando ahora.
 function onToolChange(tool: string) {
   activeTool.value = tool
   if (tool !== 'logo') logoEditing.value = false
+  if (resultUrl.value) {
+    URL.revokeObjectURL(resultUrl.value)
+    resultUrl.value = ''
+  }
+  errorMessage.value = ''
 }
 
 async function onExport() {
@@ -242,6 +249,7 @@ header h1 {
 }
 .result video {
   width: 100%;
+  max-height: 60vh;
   border-radius: 16px;
 }
 .result .download {

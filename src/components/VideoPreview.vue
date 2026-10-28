@@ -25,9 +25,12 @@ const dragging = ref(false)
 const dragStart = ref({ x: 0, y: 0 })
 const dragRect = ref<{ left: number; top: number; width: number; height: number } | null>(null)
 
-// El volumen por encima del 100% no lo soporta <video>.volume de forma
-// nativa (tope en 1), así que para amplificar de verdad enrutamos el audio
-// por Web Audio una sola vez; por debajo de 100% basta con el volumen nativo.
+// El control nativo de volumen de <video> no pasa del 100%, así que el
+// audio se enruta siempre por Web Audio y el volumen real lo controla la
+// ganancia; así el mismo camino sirve tanto para bajarlo como para
+// subirlo por encima de lo original. El contexto se reanuda recién en el
+// evento "play" porque Safari exige que ocurra dentro de un gesto del
+// usuario, y disparar el video es justamente eso.
 let audioCtx: AudioContext | null = null
 let gainNode: GainNode | null = null
 let sourceNode: MediaElementAudioSourceNode | null = null
@@ -38,23 +41,18 @@ function ensureAudioGraph() {
   audioCtx = new Ctx()
   sourceNode = audioCtx.createMediaElementSource(videoEl.value)
   gainNode = audioCtx.createGain()
+  gainNode.gain.value = Math.max(0, props.volume)
   sourceNode.connect(gainNode).connect(audioCtx.destination)
 }
 
-function applyVolume(v: number) {
-  if (!videoEl.value) return
-  if (v <= 1) {
-    videoEl.value.volume = Math.max(0, v)
-    if (gainNode) gainNode.gain.value = 1
-    return
-  }
-  videoEl.value.volume = 1
+function onPlay() {
   ensureAudioGraph()
   if (audioCtx?.state === 'suspended') audioCtx.resume().catch(() => {})
-  if (gainNode) gainNode.gain.value = v
 }
 
-watch(() => props.volume, applyVolume, { immediate: true })
+watch(() => props.volume, (v) => {
+  if (gainNode) gainNode.gain.value = Math.max(0, v)
+})
 watch(() => props.speed, (s) => {
   if (videoEl.value) videoEl.value.playbackRate = s
 }, { immediate: true })
@@ -75,12 +73,12 @@ function onLoadedMetadata() {
   naturalWidth.value = videoEl.value.videoWidth
   naturalHeight.value = videoEl.value.videoHeight
   emit('duration', videoEl.value.duration)
-  applyVolume(props.volume)
   videoEl.value.playbackRate = props.speed
 }
 
 function onPointerDown(ev: PointerEvent) {
-  if (!props.logoEditing || !videoEl.value) return
+  if (!videoEl.value) return
+  ev.preventDefault()
   const rect = videoEl.value.getBoundingClientRect()
   dragStart.value = { x: ev.clientX - rect.left, y: ev.clientY - rect.top }
   dragRect.value = { left: dragStart.value.x, top: dragStart.value.y, width: 0, height: 0 }
@@ -131,14 +129,27 @@ watch(() => props.src, () => {
 
 <template>
   <div class="preview-wrap">
-    <div
-      class="stage"
-      :class="{ 'is-editing-logo': logoEditing }"
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-    >
-      <video ref="videoEl" :src="src" controls @loadedmetadata="onLoadedMetadata" />
+    <div class="stage" :class="{ 'is-editing-logo': logoEditing }">
+      <video
+        ref="videoEl"
+        :src="src"
+        :controls="!logoEditing"
+        @loadedmetadata="onLoadedMetadata"
+        @play="onPlay"
+      />
+      <!--
+        Mientras se dibuja la región, un overlay transparente recibe el
+        arrastre en vez del <video>: así un clic o un gesto de reproducción
+        nunca llega al elemento nativo (que si lo recibe, se pone a
+        reproducir y el rectángulo que se estaba dibujando se pierde).
+      -->
+      <div
+        v-if="logoEditing"
+        class="draw-overlay"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+      />
       <div v-if="logoRegion && !dragging" class="logo-box saved" :style="{
         left: (logoRegion.x / naturalWidth * 100) + '%',
         top: (logoRegion.y / naturalHeight * 100) + '%',
@@ -171,13 +182,16 @@ watch(() => props.src, () => {
   overflow: hidden;
   background: #000;
 }
-.stage.is-editing-logo {
-  cursor: crosshair;
-}
 video {
   display: block;
   width: 100%;
   max-height: 60vh;
+}
+.draw-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
 }
 .logo-box {
   position: absolute;
