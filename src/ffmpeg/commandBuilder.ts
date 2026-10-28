@@ -19,7 +19,7 @@ export interface EditSettings {
   volume: number
   /** 1 = velocidad original, 0.5 = mitad, 2 = el doble. */
   speed: number
-  /** Región a tapar con el filtro delogo, o null si no se activó. */
+  /** Región a difuminar para tapar un logo, o null si no se activó. */
   logoRegion: LogoRegion | null
 }
 
@@ -43,27 +43,36 @@ function buildAtempoChain(speed: number): string[] {
 export function buildFfmpegArgs(inputName: string, outputName: string, settings: EditSettings): string[] {
   const { trimStart, trimEnd, volume, speed, logoRegion } = settings
 
-  const videoFilters: string[] = []
-  const audioFilters: string[] = []
-
+  // Para tapar el logo, difuminamos fuertemente esa región en vez de usar
+  // el filtro "delogo": delogo intenta reconstruir el fondo interpolando
+  // los bordes y en video con textura deja rayas verticales visibles; un
+  // desenfoque parejo cubre el logo de forma predecible, como el "blur de
+  // privacidad" de cualquier editor de video.
+  let videoFilter = ''
   if (logoRegion) {
-    const { x, y, width, height } = logoRegion
-    videoFilters.push(`delogo=x=${Math.round(x)}:y=${Math.round(y)}:w=${Math.round(width)}:h=${Math.round(height)}`)
+    const x = Math.round(logoRegion.x)
+    const y = Math.round(logoRegion.y)
+    const w = Math.round(logoRegion.width)
+    const h = Math.round(logoRegion.height)
+    videoFilter = `split[bg][fg];[fg]crop=${w}:${h}:${x}:${y},boxblur=18:4[blurred];[bg][blurred]overlay=${x}:${y}`
   }
 
   if (speed !== 1) {
-    videoFilters.push(`setpts=PTS/${speed}`)
-    audioFilters.push(...buildAtempoChain(speed))
+    videoFilter = videoFilter ? `${videoFilter},setpts=PTS/${speed}` : `setpts=PTS/${speed}`
   }
 
+  const audioFilters: string[] = []
+  if (speed !== 1) {
+    audioFilters.push(...buildAtempoChain(speed))
+  }
   if (volume !== 1) {
     audioFilters.push(`volume=${volume}`)
   }
 
   const args = ['-ss', trimStart.toFixed(3), '-to', trimEnd.toFixed(3), '-i', inputName]
 
-  if (videoFilters.length > 0) {
-    args.push('-vf', videoFilters.join(','))
+  if (videoFilter) {
+    args.push('-vf', videoFilter)
   }
   if (audioFilters.length > 0) {
     args.push('-af', audioFilters.join(','))

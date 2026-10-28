@@ -11,11 +11,14 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="panel">
-    <h2>Volumen y velocidad</h2>
+  <div class="panel glass">
+    <p class="hint">Reproduce el video de arriba para escuchar el resultado antes de exportar.</p>
 
     <div class="field">
-      <label>Volumen: {{ Math.round(volume * 100) }}%</label>
+      <div class="field-head">
+        <span>Volumen</span>
+        <span class="value">{{ Math.round(volume * 100) }}%</span>
+      </div>
       <input
         type="range"
         min="0"
@@ -27,7 +30,10 @@ const emit = defineEmits<{
     </div>
 
     <div class="field">
-      <label>Velocidad: {{ speed.toFixed(2) }}x</label>
+      <div class="field-head">
+        <span>Velocidad</span>
+        <span class="value">{{ speed.toFixed(2) }}x</span>
+      </div>
       <input
         type="range"
         min="0.25"
@@ -42,26 +48,34 @@ const emit = defineEmits<{
 
 <style scoped>
 .panel {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 18px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 20px;
   padding: 18px;
 }
-h2 {
+.hint {
   margin: 0;
-  font-size: 1rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
 }
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
-.field label {
-  font-size: 0.9rem;
+.field-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+}
+.field-head span:first-child {
   color: var(--text-dim);
+}
+.field-head .value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 input[type='range'] {
   width: 100%;

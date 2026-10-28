@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import type { LogoRegion } from '../ffmpeg/commandBuilder'
 
 const props = defineProps<{
   src: string
   logoEditing: boolean
   logoRegion: LogoRegion | null
+  volume: number
+  speed: number
+  /** Segundo al que saltar (vista previa en vivo al mover el corte). */
+  seekTo: number | null
 }>()
 
 const emit = defineEmits<{
@@ -21,11 +25,58 @@ const dragging = ref(false)
 const dragStart = ref({ x: 0, y: 0 })
 const dragRect = ref<{ left: number; top: number; width: number; height: number } | null>(null)
 
+// El volumen por encima del 100% no lo soporta <video>.volume de forma
+// nativa (tope en 1), así que para amplificar de verdad enrutamos el audio
+// por Web Audio una sola vez; por debajo de 100% basta con el volumen nativo.
+let audioCtx: AudioContext | null = null
+let gainNode: GainNode | null = null
+let sourceNode: MediaElementAudioSourceNode | null = null
+
+function ensureAudioGraph() {
+  if (sourceNode || !videoEl.value) return
+  const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+  audioCtx = new Ctx()
+  sourceNode = audioCtx.createMediaElementSource(videoEl.value)
+  gainNode = audioCtx.createGain()
+  sourceNode.connect(gainNode).connect(audioCtx.destination)
+}
+
+function applyVolume(v: number) {
+  if (!videoEl.value) return
+  if (v <= 1) {
+    videoEl.value.volume = Math.max(0, v)
+    if (gainNode) gainNode.gain.value = 1
+    return
+  }
+  videoEl.value.volume = 1
+  ensureAudioGraph()
+  if (audioCtx?.state === 'suspended') audioCtx.resume().catch(() => {})
+  if (gainNode) gainNode.gain.value = v
+}
+
+watch(() => props.volume, applyVolume, { immediate: true })
+watch(() => props.speed, (s) => {
+  if (videoEl.value) videoEl.value.playbackRate = s
+}, { immediate: true })
+watch(() => props.seekTo, (t) => {
+  if (videoEl.value && t !== null && Number.isFinite(t)) {
+    videoEl.value.currentTime = t
+  }
+})
+
+onBeforeUnmount(() => {
+  sourceNode?.disconnect()
+  gainNode?.disconnect()
+  audioCtx?.close().catch(() => {})
+})
+
 function onLoadedMetadata() {
   if (!videoEl.value) return
   naturalWidth.value = videoEl.value.videoWidth
   naturalHeight.value = videoEl.value.videoHeight
   emit('duration', videoEl.value.duration)
+  applyVolume(props.volume)
+  videoEl.value.playbackRate = props.speed
 }
 
 function onPointerDown(ev: PointerEvent) {
@@ -101,12 +152,13 @@ watch(() => props.src, () => {
         height: dragRect.height + 'px',
       }" />
     </div>
-    <p v-if="logoEditing" class="hint">Dibuja un rectángulo sobre el logo o la marca de agua que quieres tapar.</p>
+    <p v-if="logoEditing" class="hint">Dibuja un rectángulo sobre lo que quieres tapar.</p>
   </div>
 </template>
 
 <style scoped>
 .preview-wrap {
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -114,9 +166,8 @@ watch(() => props.src, () => {
 }
 .stage {
   position: relative;
-  display: inline-block;
-  max-width: 100%;
-  border-radius: 10px;
+  width: 100%;
+  border-radius: 20px;
   overflow: hidden;
   background: #000;
 }
@@ -125,18 +176,19 @@ watch(() => props.src, () => {
 }
 video {
   display: block;
-  max-width: 100%;
+  width: 100%;
   max-height: 60vh;
 }
 .logo-box {
   position: absolute;
-  border: 2px solid var(--accent-2);
-  background: rgba(255, 91, 122, 0.2);
+  border: 1.5px solid var(--accent);
+  background: rgba(10, 132, 255, 0.18);
+  border-radius: 2px;
   pointer-events: none;
 }
 .hint {
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 </style>

@@ -23,6 +23,7 @@ const sourceUrl = ref('')
 const duration = ref(0)
 const trimStart = ref(0)
 const trimEnd = ref(0)
+const seekTo = ref<number | null>(null)
 
 const volume = ref(1)
 const speed = ref(1)
@@ -33,15 +34,17 @@ const logoRegion = ref<LogoRegion | null>(null)
 const resultUrl = ref('')
 const errorMessage = ref('')
 
-const { loading, loaded, progress, runEdit } = useFfmpeg()
+const { loading, progress, runEdit } = useFfmpeg()
 const exporting = ref(false)
 
-function onFileSelected(selected: File) {
+function resetForNewFile(selected: File) {
   file.value = selected
   sourceUrl.value = URL.createObjectURL(selected)
   duration.value = 0
   trimStart.value = 0
   trimEnd.value = 0
+  volume.value = 1
+  speed.value = 1
   logoRegion.value = null
   logoEditing.value = false
   resultUrl.value = ''
@@ -81,178 +84,178 @@ async function onExport() {
     resultUrl.value = URL.createObjectURL(blob)
   } catch (err) {
     console.error('export failed', err)
-    errorMessage.value = err instanceof Error ? err.message : 'No se pudo procesar el video.'
+    errorMessage.value = 'No se pudo generar el video. Intenta de nuevo.'
   } finally {
     exporting.value = false
   }
 }
 
-const statusText = computed(() => {
-  if (loading.value) return 'Cargando FFmpeg (WebAssembly)…'
-  if (!loaded.value) return 'FFmpeg se carga la primera vez que exportas.'
-  return 'FFmpeg listo.'
+const exportLabel = computed(() => {
+  if (loading.value) return 'Preparando…'
+  if (exporting.value) return `Procesando ${Math.round(progress.value * 100)}%`
+  return 'Exportar video'
 })
+const exportDisabled = computed(() => exporting.value || loading.value)
 </script>
 
 <template>
   <div class="app">
     <header>
       <h1>ClipEditor</h1>
-      <p class="subtitle">
-        Corta, ajusta volumen/velocidad y quita logos — todo dentro de tu navegador, con FFmpeg
-        compilado a WebAssembly (igual técnica que usa 123apps).
-      </p>
     </header>
 
-    <div class="layout">
-      <ToolNav :tools="TOOLS" :model-value="activeTool" :disabled="!file" @update:model-value="onToolChange" />
+    <VideoUploader v-if="!file" @selected="resetForNewFile" />
 
-      <main class="workspace">
-        <VideoUploader v-if="!file" @selected="onFileSelected" />
+    <template v-else>
+      <div class="toolbar">
+        <ToolNav :tools="TOOLS" :model-value="activeTool" :disabled="false" @update:model-value="onToolChange" />
+        <button class="change-video" type="button" @click="file = null" title="Elegir otro video">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" />
+            <path d="M18 3v4h-4M6 21v-4h4" />
+          </svg>
+        </button>
+      </div>
 
-        <template v-else>
-          <VideoPreview
-            :src="sourceUrl"
-            :logo-editing="logoEditing && activeTool === 'logo'"
-            v-model:logo-region="logoRegion"
-            @duration="onDuration"
-          />
+      <VideoPreview
+        :src="sourceUrl"
+        :logo-editing="logoEditing && activeTool === 'logo'"
+        :volume="volume"
+        :speed="speed"
+        :seek-to="seekTo"
+        v-model:logo-region="logoRegion"
+        @duration="onDuration"
+      />
 
-          <TrimPanel
-            v-if="activeTool === 'trim'"
-            :duration="duration"
-            v-model:trim-start="trimStart"
-            v-model:trim-end="trimEnd"
-          />
+      <TrimPanel
+        v-if="activeTool === 'trim'"
+        :duration="duration"
+        v-model:trim-start="trimStart"
+        v-model:trim-end="trimEnd"
+        @seek="seekTo = $event"
+      />
 
-          <VolumeSpeedPanel
-            v-else-if="activeTool === 'volume-speed'"
-            v-model:volume="volume"
-            v-model:speed="speed"
-          />
+      <VolumeSpeedPanel
+        v-else-if="activeTool === 'volume-speed'"
+        v-model:volume="volume"
+        v-model:speed="speed"
+      />
 
-          <LogoPanel
-            v-else
-            :logo-editing="logoEditing"
-            :has-logo-region="logoRegion !== null"
-            @toggle-logo-editing="toggleLogoEditing"
-            @clear-logo-region="logoRegion = null"
-          />
+      <LogoPanel
+        v-else
+        :logo-editing="logoEditing"
+        :has-logo-region="logoRegion !== null"
+        @toggle-logo-editing="toggleLogoEditing"
+        @clear-logo-region="logoRegion = null"
+      />
 
-          <div class="export-bar">
-            <button class="export" type="button" :disabled="exporting" @click="onExport">
-              {{ exporting ? `Procesando… ${Math.round(progress * 100)}%` : 'Exportar video' }}
-            </button>
-            <p class="status">{{ statusText }}</p>
-          </div>
+      <button class="export" type="button" :disabled="exportDisabled" @click="onExport">
+        {{ exportLabel }}
+      </button>
 
-          <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
 
-          <div v-if="resultUrl" class="result">
-            <h2>Resultado</h2>
-            <video :src="resultUrl" controls />
-            <a class="download" :href="resultUrl" download="video-editado.mp4">Descargar video</a>
-          </div>
-
-          <button class="change-file" type="button" @click="file = null">Elegir otro video</button>
-        </template>
-      </main>
-    </div>
+      <div v-if="resultUrl" class="result">
+        <video :src="resultUrl" controls />
+        <a class="download" :href="resultUrl" download="video-editado.mp4">Descargar</a>
+      </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .app {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 32px 20px 64px;
-}
-header h1 {
-  margin: 0 0 6px;
-  font-size: 1.6rem;
-}
-.subtitle {
-  color: var(--text-dim);
-  margin: 0 0 28px;
   max-width: 640px;
-}
-.layout {
-  display: flex;
-  align-items: flex-start;
-  gap: 28px;
-}
-.workspace {
-  flex: 1;
-  min-width: 0;
+  margin: 0 auto;
+  padding: 48px 20px 64px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 18px;
 }
-.export-bar {
+header {
+  margin-bottom: 8px;
+}
+header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+.toolbar {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: center;
+  gap: 10px;
+  position: relative;
 }
-button.export {
+.change-video {
+  position: absolute;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  color: var(--text-dim);
+  backdrop-filter: blur(20px);
+}
+.change-video:hover {
+  color: var(--text);
+}
+.change-video svg {
+  width: 16px;
+  height: 16px;
+}
+.export {
+  width: 100%;
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 8px;
-  padding: 12px 20px;
-  font-size: 1rem;
+  border-radius: 14px;
+  padding: 14px;
+  font-size: 0.95rem;
   font-weight: 600;
-  white-space: nowrap;
+  letter-spacing: -0.01em;
 }
-.status {
-  color: var(--text-dim);
-  font-size: 0.85rem;
-  margin: 0;
+.export:active:not(:disabled) {
+  transform: scale(0.99);
 }
 .error {
   color: var(--accent-2);
+  font-size: 0.85rem;
   margin: 0;
+  text-align: center;
 }
 .result {
-  border-top: 1px solid var(--border);
-  padding-top: 18px;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
-}
-.result h2 {
-  align-self: flex-start;
-  margin: 0;
-  font-size: 1rem;
+  padding-top: 8px;
 }
 .result video {
-  max-width: 100%;
-  border-radius: 10px;
+  width: 100%;
+  border-radius: 16px;
 }
 .result .download {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  background: var(--accent);
-  color: #fff;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  color: var(--text);
   text-decoration: none;
-  padding: 10px 16px;
-  border-radius: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
   font-weight: 600;
-  width: fit-content;
-}
-.change-file {
-  align-self: flex-start;
-  margin-top: 4px;
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 14px;
-}
-
-@media (max-width: 720px) {
-  .layout {
-    flex-direction: column;
-  }
+  font-size: 0.9rem;
 }
 </style>

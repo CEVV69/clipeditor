@@ -11,22 +11,21 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="panel">
-    <h2>Quitar logo o marca de agua</h2>
-    <p class="hint">Marca la región y dibuja un rectángulo sobre el video, encima del logo que quieres tapar.</p>
+  <div class="panel glass">
+    <p class="hint">Marca un rectángulo sobre el video, encima del logo o la marca de agua que quieres tapar.</p>
     <div class="actions">
       <button
         type="button"
-        class="secondary"
+        class="pill"
         :class="{ active: logoEditing }"
         @click="$emit('toggle-logo-editing')"
       >
-        {{ logoEditing ? 'Dibujando región…' : 'Marcar región' }}
+        {{ logoEditing ? 'Dibujando…' : 'Marcar región' }}
       </button>
       <button
         v-if="hasLogoRegion"
         type="button"
-        class="secondary ghost"
+        class="pill ghost"
         @click="$emit('clear-logo-region')"
       >
         Quitar marca
@@ -37,17 +36,12 @@ defineEmits<{
 
 <style scoped>
 .panel {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 20px;
   padding: 18px;
-}
-h2 {
-  margin: 0;
-  font-size: 1rem;
 }
 .hint {
   margin: 0;
@@ -58,19 +52,20 @@ h2 {
   display: flex;
   gap: 8px;
 }
-button.secondary {
-  background: var(--panel-2);
+.pill {
+  background: var(--glass-strong);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 0.9rem;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 0.85rem;
 }
-button.secondary.active {
-  border-color: var(--accent-2);
-  color: var(--accent-2);
+.pill.active {
+  background: var(--accent);
 }
-button.secondary.ghost {
+.pill.ghost {
   background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text-dim);
 }
 </style>

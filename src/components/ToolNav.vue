@@ -17,7 +17,7 @@ defineEmits<{
 </script>
 
 <template>
-  <nav class="tool-nav" :class="{ disabled }">
+  <nav class="tool-nav glass" :class="{ disabled }">
     <button
       v-for="tool in tools"
       :key="tool.id"
@@ -27,20 +27,20 @@ defineEmits<{
       :disabled="disabled"
       @click="$emit('update:modelValue', tool.id)"
     >
-      <svg v-if="tool.icon === 'cut'" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="6" cy="6" r="2.4" />
-        <circle cx="6" cy="18" r="2.4" />
-        <line x1="8.1" y1="7.5" x2="20" y2="19" />
-        <line x1="8.1" y1="16.5" x2="20" y2="5" />
+      <svg v-if="tool.icon === 'cut'" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="6" cy="6" r="2.2" />
+        <circle cx="6" cy="18" r="2.2" />
+        <line x1="8" y1="7.4" x2="20" y2="19" />
+        <line x1="8" y1="16.6" x2="20" y2="5" />
       </svg>
-      <svg v-else-if="tool.icon === 'speed'" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 13a9 9 0 0 1 18 0" />
-        <line x1="12" y1="13" x2="16" y2="9" />
-        <circle cx="12" cy="13" r="1.3" fill="currentColor" stroke="none" />
+      <svg v-else-if="tool.icon === 'speed'" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3.5 13a8.5 8.5 0 0 1 17 0" />
+        <line x1="12" y1="13" x2="15.5" y2="9.3" />
+        <circle cx="12" cy="13" r="1.2" fill="currentColor" stroke="none" />
       </svg>
-      <svg v-else class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="4" y="6" width="16" height="12" rx="2" />
-        <line x1="4" y1="6" x2="20" y2="18" />
+      <svg v-else class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4.5" y="6.5" width="15" height="11" rx="2" />
+        <line x1="4.5" y1="6.5" x2="19.5" y2="17.5" />
       </svg>
       <span class="label">{{ tool.label }}</span>
     </button>
@@ -49,56 +49,51 @@ defineEmits<{
 
 <style scoped>
 .tool-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 0 0 180px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 14px;
+  margin: 0 auto;
 }
 .tool-nav.disabled {
-  opacity: 0.45;
+  opacity: 0.4;
 }
 .tool-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 7px 13px;
   background: transparent;
   color: var(--text-dim);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  text-align: left;
+  border: none;
+  border-radius: 11px;
+  font-size: 0.8rem;
+  letter-spacing: -0.01em;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
-.tool-btn:hover:not(:disabled) {
-  background: var(--panel);
+.tool-btn:hover:not(:disabled):not(.active) {
+  color: var(--text);
 }
 .tool-btn.active {
-  background: var(--panel);
-  border-color: var(--accent);
+  background: var(--glass-strong);
   color: var(--text);
 }
 .icon {
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
 }
 
-@media (max-width: 720px) {
-  .tool-nav {
-    flex-direction: row;
-    flex: none;
-    width: 100%;
-    overflow-x: auto;
-    gap: 6px;
-    padding-bottom: 2px;
+@media (max-width: 560px) {
+  .tool-btn .label {
+    display: none;
   }
   .tool-btn {
-    flex: 1;
-    flex-direction: column;
-    gap: 4px;
-    text-align: center;
-    padding: 10px 6px;
-    font-size: 0.78rem;
+    padding: 9px 12px;
+  }
+  .icon {
+    width: 17px;
+    height: 17px;
   }
 }
 </style>
