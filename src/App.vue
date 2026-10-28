@@ -61,6 +61,15 @@ function toggleLogoEditing() {
   logoEditing.value = !logoEditing.value
 }
 
+// "Quitar marca" borra la región guardada y además sale del modo de
+// dibujo: si no, el botón principal seguía mostrando "Dibujando…" aunque
+// ya no quedara nada dibujado, y eso se veía como si la app se hubiera
+// quedado pegada en vez de simplemente seguir en modo de dibujo.
+function clearLogoRegion() {
+  logoRegion.value = null
+  logoEditing.value = false
+}
+
 // Dibujar la región de logo solo tiene sentido mientras esa herramienta
 // está activa; si el usuario cambia de herramienta, se sale del modo dibujo.
 // El resultado exportado también se oculta: quedó atado a los ajustes de
@@ -153,7 +162,7 @@ const exportDisabled = computed(() => exporting.value || loading.value)
         :logo-editing="logoEditing"
         :has-logo-region="logoRegion !== null"
         @toggle-logo-editing="toggleLogoEditing"
-        @clear-logo-region="logoRegion = null"
+        @clear-logo-region="clearLogoRegion"
       />
 
       <button class="export" type="button" :disabled="exportDisabled" @click="onExport">
