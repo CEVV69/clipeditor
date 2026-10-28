@@ -24,12 +24,15 @@ const duration = ref(0)
 const trimStart = ref(0)
 const trimEnd = ref(0)
 const seekTo = ref<number | null>(null)
+const frameWidth = ref(0)
+const frameHeight = ref(0)
 
 const volume = ref(1)
 const speed = ref(1)
 
 const logoEditing = ref(false)
-const logoRegion = ref<LogoRegion | null>(null)
+const logoRegions = ref<LogoRegion[]>([])
+const MAX_LOGO_REGIONS = 3
 
 const resultUrl = ref('')
 const errorMessage = ref('')
@@ -45,7 +48,7 @@ function resetForNewFile(selected: File) {
   trimEnd.value = 0
   volume.value = 1
   speed.value = 1
-  logoRegion.value = null
+  logoRegions.value = []
   logoEditing.value = false
   resultUrl.value = ''
   errorMessage.value = ''
@@ -57,14 +60,38 @@ function onDuration(seconds: number) {
   trimEnd.value = seconds
 }
 
-function toggleLogoEditing() {
+function onNaturalSize(size: { width: number; height: number }) {
+  frameWidth.value = size.width
+  frameHeight.value = size.height
+}
+
+// Alterna el modo de dibujo para la siguiente zona (hasta un máximo de 3).
+// Si el usuario se arrepiente a medio trazo, volver a hacer clic en el
+// mismo botón ("Dibujando…") lo cancela.
+function startSelecting() {
+  if (logoRegions.value.length >= MAX_LOGO_REGIONS) return
   logoEditing.value = !logoEditing.value
 }
 
-// "Quitar marca" borra la región guardada pero se queda en modo dibujo,
-// lista para trazar un rectángulo nuevo sin un clic extra.
-function clearLogoRegion() {
-  logoRegion.value = null
+// Al completar un trazo válido se agrega como zona nueva y se sale del modo
+// dibujo automáticamente: el botón pasa solo a "Seleccionar zona N+1" sin
+// que haga falta un clic extra para "confirmar" la zona.
+function onRegionDrawn(region: LogoRegion) {
+  if (logoRegions.value.length < MAX_LOGO_REGIONS) {
+    logoRegions.value = [...logoRegions.value, region]
+  }
+  logoEditing.value = false
+}
+
+function onDrawingCancelled() {
+  logoEditing.value = false
+}
+
+// "Quitar marcas" borra todas las zonas de una vez y vuelve al punto de
+// partida, lista para marcar desde la zona 1 otra vez.
+function clearAllLogoRegions() {
+  logoRegions.value = []
+  logoEditing.value = false
 }
 
 // Dibujar la región de logo solo tiene sentido mientras esa herramienta
@@ -91,7 +118,9 @@ async function onExport() {
       trimEnd: trimEnd.value,
       volume: volume.value,
       speed: speed.value,
-      logoRegion: logoRegion.value,
+      logoRegions: logoRegions.value,
+      frameWidth: frameWidth.value,
+      frameHeight: frameHeight.value,
     })
     if (resultUrl.value) URL.revokeObjectURL(resultUrl.value)
     resultUrl.value = URL.createObjectURL(blob)
@@ -133,11 +162,14 @@ const exportDisabled = computed(() => exporting.value || loading.value)
       <VideoPreview
         :src="sourceUrl"
         :logo-editing="logoEditing && activeTool === 'logo'"
+        :logo-regions="logoRegions"
         :volume="volume"
         :speed="speed"
         :seek-to="seekTo"
-        v-model:logo-region="logoRegion"
         @duration="onDuration"
+        @natural-size="onNaturalSize"
+        @region-drawn="onRegionDrawn"
+        @drawing-cancelled="onDrawingCancelled"
       />
 
       <TrimPanel
@@ -157,9 +189,9 @@ const exportDisabled = computed(() => exporting.value || loading.value)
       <LogoPanel
         v-else
         :logo-editing="logoEditing"
-        :has-logo-region="logoRegion !== null"
-        @toggle-logo-editing="toggleLogoEditing"
-        @clear-logo-region="clearLogoRegion"
+        :regions-count="logoRegions.length"
+        @start-selecting="startSelecting"
+        @clear-all="clearAllLogoRegions"
       />
 
       <button class="export" type="button" :disabled="exportDisabled" @click="onExport">

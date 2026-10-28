@@ -5,7 +5,7 @@ import type { LogoRegion } from '../ffmpeg/commandBuilder'
 const props = defineProps<{
   src: string
   logoEditing: boolean
-  logoRegion: LogoRegion | null
+  logoRegions: LogoRegion[]
   volume: number
   speed: number
   /** Segundo al que saltar (vista previa en vivo al mover el corte). */
@@ -14,7 +14,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'duration', seconds: number): void
-  (e: 'update:logoRegion', region: LogoRegion | null): void
+  (e: 'natural-size', size: { width: number; height: number }): void
+  (e: 'region-drawn', region: LogoRegion): void
+  (e: 'drawing-cancelled'): void
 }>()
 
 const videoEl = ref<HTMLVideoElement | null>(null)
@@ -73,6 +75,7 @@ function onLoadedMetadata() {
   naturalWidth.value = videoEl.value.videoWidth
   naturalHeight.value = videoEl.value.videoHeight
   emit('duration', videoEl.value.duration)
+  emit('natural-size', { width: naturalWidth.value, height: naturalHeight.value })
   videoEl.value.playbackRate = props.speed
 }
 
@@ -115,18 +118,27 @@ function finishDrag() {
   const rect = videoEl.value.getBoundingClientRect()
   const scaleX = naturalWidth.value / rect.width
   const scaleY = naturalHeight.value / rect.height
+  const drawn = dragRect.value
+  dragRect.value = null
 
+  // El filtro que tapa el logo rechaza de plano cualquier región que se
+  // salga del fotograma (aborta todo el procesamiento, no solo la
+  // recorta), y es muy fácil pasarse un poco del borde al dibujar —
+  // sobre todo cerca de las esquinas, donde suelen estar los logos. Por
+  // eso la región se acota siempre a los límites reales del video.
+  const x = Math.max(0, Math.min(drawn.left * scaleX, naturalWidth.value))
+  const y = Math.max(0, Math.min(drawn.top * scaleY, naturalHeight.value))
   const region: LogoRegion = {
-    x: dragRect.value.left * scaleX,
-    y: dragRect.value.top * scaleY,
-    width: dragRect.value.width * scaleX,
-    height: dragRect.value.height * scaleY,
+    x,
+    y,
+    width: Math.min(drawn.width * scaleX, naturalWidth.value - x),
+    height: Math.min(drawn.height * scaleY, naturalHeight.value - y),
   }
 
   if (region.width < 4 || region.height < 4) {
-    emit('update:logoRegion', null)
+    emit('drawing-cancelled')
   } else {
-    emit('update:logoRegion', region)
+    emit('region-drawn', region)
   }
 }
 
@@ -135,6 +147,8 @@ function finishDrag() {
 // queda "dragging" encendido sin que nada lo vuelva a apagar.
 function onPointerCancel() {
   dragging.value = false
+  dragRect.value = null
+  emit('drawing-cancelled')
 }
 
 // Red de seguridad: si por lo que sea queda un trazo a medias cuando se
@@ -147,11 +161,11 @@ watch(() => props.logoEditing, (editing) => {
   }
 })
 
-// Si cambia el video, se pierde cualquier región de logo marcada sobre el anterior.
+// Si cambia el video, se pierde cualquier trazo a medias sobre el anterior
+// (las zonas guardadas en sí las resetea el componente padre).
 watch(() => props.src, () => {
   dragging.value = false
   dragRect.value = null
-  emit('update:logoRegion', null)
 })
 </script>
 
@@ -180,17 +194,22 @@ watch(() => props.src, () => {
         @pointercancel="onPointerCancel"
       />
       <!--
-        El recuadro marcado se muestra ya difuminado (backdrop-filter
+        Cada zona marcada se muestra ya difuminada (backdrop-filter
         desenfoca lo que hay justo detrás, en vivo, incluso reproduciendo),
         para ver de antemano más o menos cómo va a quedar sin tener que
         exportar primero.
       -->
-      <div v-if="logoRegion && !dragging" class="logo-box saved" :style="{
-        left: (logoRegion.x / naturalWidth * 100) + '%',
-        top: (logoRegion.y / naturalHeight * 100) + '%',
-        width: (logoRegion.width / naturalWidth * 100) + '%',
-        height: (logoRegion.height / naturalHeight * 100) + '%',
-      }" />
+      <div
+        v-for="(region, i) in logoRegions"
+        :key="i"
+        class="logo-box saved"
+        :style="{
+          left: (region.x / naturalWidth * 100) + '%',
+          top: (region.y / naturalHeight * 100) + '%',
+          width: (region.width / naturalWidth * 100) + '%',
+          height: (region.height / naturalHeight * 100) + '%',
+        }"
+      />
       <div v-if="dragging && dragRect" class="logo-box dragging" :style="{
         left: dragRect.left + 'px',
         top: dragRect.top + 'px',

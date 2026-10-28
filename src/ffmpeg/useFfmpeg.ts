@@ -52,7 +52,18 @@ export function useFfmpeg() {
     await ffmpeg.writeFile(inputName, await fetchFile(file))
 
     const args = buildFfmpegArgs(inputName, outputName, settings)
-    await ffmpeg.exec(args)
+    const exitCode = await ffmpeg.exec(args)
+
+    // Un exitCode distinto de cero significa que el procesamiento falló
+    // (filtro inválido, archivo no soportado, etc.); si seguimos de largo,
+    // "output.mp4" queda vacío o incompleto y el video resultante ni
+    // siquiera se puede reproducir, sin ningún aviso del porqué.
+    if (exitCode !== 0) {
+      await ffmpeg.deleteFile(inputName).catch(() => {})
+      await ffmpeg.deleteFile(outputName).catch(() => {})
+      const lastLines = logLines.value.slice(-5).join(' | ')
+      throw new Error(`El procesamiento falló (código ${exitCode}): ${lastLines}`)
+    }
 
     const data = await ffmpeg.readFile(outputName)
     await ffmpeg.deleteFile(inputName).catch(() => {})

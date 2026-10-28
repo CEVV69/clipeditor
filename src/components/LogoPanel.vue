@@ -1,34 +1,48 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+
+const props = defineProps<{
   logoEditing: boolean
-  hasLogoRegion: boolean
+  regionsCount: number
 }>()
 
 defineEmits<{
-  (e: 'toggle-logo-editing'): void
-  (e: 'clear-logo-region'): void
+  (e: 'start-selecting'): void
+  (e: 'clear-all'): void
 }>()
+
+const MAX_REGIONS = 3
+
+const selectLabel = computed(() => {
+  if (props.logoEditing) return 'Dibujando…'
+  return props.regionsCount === 0 ? 'Seleccionar zona' : `Seleccionar zona ${props.regionsCount + 1}`
+})
+const canSelectMore = computed(() => props.regionsCount < MAX_REGIONS)
 </script>
 
 <template>
   <div class="panel glass">
-    <p class="hint">Marca un rectángulo sobre el video, encima del logo o la marca de agua que quieres tapar. El video de arriba ya muestra el área difuminada, antes de exportar.</p>
+    <p class="hint">
+      Marca hasta 3 zonas sobre el video, encima de los logos o marcas de agua que quieres tapar. Cada una
+      se ve ya difuminada arriba, antes de exportar.
+    </p>
     <div class="actions">
       <button
+        v-if="canSelectMore"
         type="button"
         class="pill"
         :class="{ active: logoEditing }"
-        @click="$emit('toggle-logo-editing')"
+        @click="$emit('start-selecting')"
       >
-        {{ logoEditing ? 'Dibujando…' : 'Marcar región' }}
+        {{ selectLabel }}
       </button>
       <button
-        v-if="hasLogoRegion"
+        v-if="regionsCount > 0"
         type="button"
         class="pill ghost"
-        @click="$emit('clear-logo-region')"
+        @click="$emit('clear-all')"
       >
-        Quitar marca
+        Quitar marcas
       </button>
     </div>
   </div>
