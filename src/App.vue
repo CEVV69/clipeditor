@@ -87,8 +87,9 @@ function onDrawingCancelled() {
   logoEditing.value = false
 }
 
-// "Quitar marcas" borra todas las zonas de una vez y vuelve al punto de
-// partida, lista para marcar desde la zona 1 otra vez.
+// "Borrar selección" borra todas las zonas de una vez y vuelve al punto de
+// partida, lista para marcar desde la zona 1 otra vez. Esto no procesa el
+// video — el que de verdad quita los logos es "Ejecutar edición".
 function clearAllLogoRegions() {
   logoRegions.value = []
   logoEditing.value = false
@@ -135,7 +136,7 @@ async function onExport() {
 const exportLabel = computed(() => {
   if (loading.value) return 'Preparando…'
   if (exporting.value) return `Procesando ${Math.round(progress.value * 100)}%`
-  return 'Exportar video'
+  return 'Ejecutar edición'
 })
 const exportDisabled = computed(() => exporting.value || loading.value)
 </script>

@@ -12,7 +12,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="panel glass">
-    <p class="hint">Reproduce el video de arriba para escuchar el resultado antes de exportar.</p>
+    <p class="hint">Reproduce el video de arriba para escuchar el resultado antes de ejecutar la edición.</p>
 
     <div class="field">
       <div class="field-head">

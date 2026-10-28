@@ -24,7 +24,7 @@ const canSelectMore = computed(() => props.regionsCount < MAX_REGIONS)
   <div class="panel glass">
     <p class="hint">
       Marca hasta 3 zonas sobre el video, encima de los logos o marcas de agua que quieres tapar. Cada una
-      se ve ya difuminada arriba, antes de exportar.
+      se ve ya difuminada arriba, antes de ejecutar la edición.
     </p>
     <div class="actions">
       <button
@@ -42,7 +42,7 @@ const canSelectMore = computed(() => props.regionsCount < MAX_REGIONS)
         class="pill ghost"
         @click="$emit('clear-all')"
       >
-        Quitar marcas
+        Borrar selección
       </button>
     </div>
   </div>
