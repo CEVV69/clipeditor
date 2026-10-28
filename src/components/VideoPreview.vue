@@ -174,11 +174,16 @@ watch(() => props.src, () => {
   dragRect.value = null
 })
 
-// --- Recorte / proporción: cuatro tiradores, uno por borde, que ajustan el
-// rectángulo existente en vez de dibujar uno nuevo desde cero. ---
-type CropHandle = 'top' | 'right' | 'bottom' | 'left'
+// --- Recorte / proporción ---
+// Cuatro tiradores, uno por borde, ajustan el tamaño del recuadro. Arrastrar
+// el recuadro por dentro (fuera de los tiradores) lo desplaza entero sin
+// cambiar su tamaño ni su proporción — así se elige qué parte del video
+// original queda dentro de un encuadre que ya tiene el ancho/alto fijado
+// (por un preset, por ejemplo), en vez de tener que estirar los bordes.
+type CropHandle = 'top' | 'right' | 'bottom' | 'left' | 'move'
 const cropDragHandle = ref<CropHandle | null>(null)
 const CROP_MIN_SIZE = 20 // tamaño mínimo del recorte, en píxeles reales del video
+const cropMoveOrigin = ref({ pointerX: 0, pointerY: 0, rectX: 0, rectY: 0 })
 
 function onCropHandleDown(handle: CropHandle, ev: PointerEvent) {
   if (!props.cropRect) return
@@ -186,6 +191,14 @@ function onCropHandleDown(handle: CropHandle, ev: PointerEvent) {
   ev.stopPropagation()
   ;(ev.target as HTMLElement).setPointerCapture?.(ev.pointerId)
   cropDragHandle.value = handle
+  if (handle === 'move') {
+    cropMoveOrigin.value = {
+      pointerX: ev.clientX,
+      pointerY: ev.clientY,
+      rectX: props.cropRect.x,
+      rectY: props.cropRect.y,
+    }
+  }
 }
 
 function onCropHandleMove(ev: PointerEvent) {
@@ -193,10 +206,19 @@ function onCropHandleMove(ev: PointerEvent) {
   const rect = videoEl.value.getBoundingClientRect()
   const scaleX = naturalWidth.value / rect.width
   const scaleY = naturalHeight.value / rect.height
-  const px = (ev.clientX - rect.left) * scaleX
-  const py = (ev.clientY - rect.top) * scaleY
 
   const c = { ...props.cropRect }
+  if (cropDragHandle.value === 'move') {
+    const dx = (ev.clientX - cropMoveOrigin.value.pointerX) * scaleX
+    const dy = (ev.clientY - cropMoveOrigin.value.pointerY) * scaleY
+    c.x = Math.max(0, Math.min(cropMoveOrigin.value.rectX + dx, naturalWidth.value - c.width))
+    c.y = Math.max(0, Math.min(cropMoveOrigin.value.rectY + dy, naturalHeight.value - c.height))
+    emit('update:cropRect', c)
+    return
+  }
+
+  const px = (ev.clientX - rect.left) * scaleX
+  const py = (ev.clientY - rect.top) * scaleY
   if (cropDragHandle.value === 'top') {
     const newY = Math.max(0, Math.min(py, c.y + c.height - CROP_MIN_SIZE))
     c.height += c.y - newY
@@ -296,6 +318,9 @@ function onCropHandleUp() {
             width: (cropRect.width / naturalWidth * 100) + '%',
             height: (cropRect.height / naturalHeight * 100) + '%',
           }"
+          @pointerdown="onCropHandleDown('move', $event)"
+          @pointermove="onCropHandleMove"
+          @pointerup="onCropHandleUp"
         >
           <div
             class="crop-handle top"
@@ -325,7 +350,7 @@ function onCropHandleUp() {
       </template>
     </div>
     <p v-if="logoEditing" class="hint">Dibuja un rectángulo sobre lo que quieres tapar.</p>
-    <p v-if="cropEditing" class="hint">Arrastra los bordes del recuadro para ajustar el recorte.</p>
+    <p v-if="cropEditing" class="hint">Arrastra el video para centrar lo que quieres conservar, o los bordes del recuadro para ajustar el tamaño del recorte.</p>
   </div>
 </template>
 
@@ -377,6 +402,8 @@ video {
   position: absolute;
   border: 1.5px solid #fff;
   box-sizing: border-box;
+  cursor: move;
+  touch-action: none;
 }
 .crop-handle {
   position: absolute;

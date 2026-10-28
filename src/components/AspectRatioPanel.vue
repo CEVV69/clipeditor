@@ -4,6 +4,7 @@ const PRESETS = [
   { id: '16:9', label: '16:9' },
   { id: '9:16', label: '9:16' },
   { id: '4:3', label: '4:3' },
+  { id: '3:4', label: '3:4' },
   { id: '1:1', label: '1:1' },
 ]
 
@@ -20,8 +21,8 @@ defineEmits<{
 <template>
   <div class="panel glass">
     <p class="hint">
-      Elige una proporción o arrastra los bordes sobre el video para recortar a mano, horizontal y
-      vertical.
+      Elige una proporción y arrastra el video para centrar lo que quieres conservar. También puedes
+      ajustar los bordes del recuadro a mano, horizontal y vertical.
     </p>
     <div class="presets">
       <button
