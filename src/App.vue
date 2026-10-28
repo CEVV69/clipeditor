@@ -61,13 +61,10 @@ function toggleLogoEditing() {
   logoEditing.value = !logoEditing.value
 }
 
-// "Quitar marca" borra la región guardada y además sale del modo de
-// dibujo: si no, el botón principal seguía mostrando "Dibujando…" aunque
-// ya no quedara nada dibujado, y eso se veía como si la app se hubiera
-// quedado pegada en vez de simplemente seguir en modo de dibujo.
+// "Quitar marca" borra la región guardada pero se queda en modo dibujo,
+// lista para trazar un rectángulo nuevo sin un clic extra.
 function clearLogoRegion() {
   logoRegion.value = null
-  logoEditing.value = false
 }
 
 // Dibujar la región de logo solo tiene sentido mientras esa herramienta

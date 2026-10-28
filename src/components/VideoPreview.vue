@@ -179,6 +179,12 @@ watch(() => props.src, () => {
         @pointerup="finishDrag"
         @pointercancel="onPointerCancel"
       />
+      <!--
+        El recuadro marcado se muestra ya difuminado (backdrop-filter
+        desenfoca lo que hay justo detrás, en vivo, incluso reproduciendo),
+        para ver de antemano más o menos cómo va a quedar sin tener que
+        exportar primero.
+      -->
       <div v-if="logoRegion && !dragging" class="logo-box saved" :style="{
         left: (logoRegion.x / naturalWidth * 100) + '%',
         top: (logoRegion.y / naturalHeight * 100) + '%',
@@ -225,9 +231,15 @@ video {
 .logo-box {
   position: absolute;
   border: 1.5px solid var(--accent);
-  background: rgba(10, 132, 255, 0.18);
   border-radius: 2px;
   pointer-events: none;
+}
+.logo-box.saved {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.logo-box.dragging {
+  background: rgba(10, 132, 255, 0.18);
 }
 .hint {
   margin: 0;

@@ -12,7 +12,7 @@ defineEmits<{
 
 <template>
   <div class="panel glass">
-    <p class="hint">Marca un rectángulo sobre el video, encima del logo o la marca de agua que quieres tapar.</p>
+    <p class="hint">Marca un rectángulo sobre el video, encima del logo o la marca de agua que quieres tapar. El video de arriba ya muestra el área difuminada, antes de exportar.</p>
     <div class="actions">
       <button
         type="button"
