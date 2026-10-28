@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import type { LogoRegion } from '../ffmpeg/commandBuilder'
+import type { CropRect, LogoRegion } from '../ffmpeg/commandBuilder'
 
 const props = defineProps<{
   src: string
   logoEditing: boolean
   logoRegions: LogoRegion[]
+  cropEditing: boolean
+  cropRect: CropRect | null
   volume: number
   speed: number
   /** Segundo al que saltar (vista previa en vivo al mover el corte). */
@@ -17,6 +19,7 @@ const emit = defineEmits<{
   (e: 'natural-size', size: { width: number; height: number }): void
   (e: 'region-drawn', region: LogoRegion): void
   (e: 'drawing-cancelled'): void
+  (e: 'update:cropRect', rect: CropRect): void
 }>()
 
 const videoEl = ref<HTMLVideoElement | null>(null)
@@ -160,6 +163,9 @@ watch(() => props.logoEditing, (editing) => {
     dragRect.value = null
   }
 })
+watch(() => props.cropEditing, (editing) => {
+  if (!editing) cropDragHandle.value = null
+})
 
 // Si cambia el video, se pierde cualquier trazo a medias sobre el anterior
 // (las zonas guardadas en sí las resetea el componente padre).
@@ -167,6 +173,51 @@ watch(() => props.src, () => {
   dragging.value = false
   dragRect.value = null
 })
+
+// --- Recorte / proporción: cuatro tiradores, uno por borde, que ajustan el
+// rectángulo existente en vez de dibujar uno nuevo desde cero. ---
+type CropHandle = 'top' | 'right' | 'bottom' | 'left'
+const cropDragHandle = ref<CropHandle | null>(null)
+const CROP_MIN_SIZE = 20 // tamaño mínimo del recorte, en píxeles reales del video
+
+function onCropHandleDown(handle: CropHandle, ev: PointerEvent) {
+  if (!props.cropRect) return
+  ev.preventDefault()
+  ev.stopPropagation()
+  ;(ev.target as HTMLElement).setPointerCapture?.(ev.pointerId)
+  cropDragHandle.value = handle
+}
+
+function onCropHandleMove(ev: PointerEvent) {
+  if (!cropDragHandle.value || !videoEl.value || !props.cropRect) return
+  const rect = videoEl.value.getBoundingClientRect()
+  const scaleX = naturalWidth.value / rect.width
+  const scaleY = naturalHeight.value / rect.height
+  const px = (ev.clientX - rect.left) * scaleX
+  const py = (ev.clientY - rect.top) * scaleY
+
+  const c = { ...props.cropRect }
+  if (cropDragHandle.value === 'top') {
+    const newY = Math.max(0, Math.min(py, c.y + c.height - CROP_MIN_SIZE))
+    c.height += c.y - newY
+    c.y = newY
+  } else if (cropDragHandle.value === 'bottom') {
+    const newBottom = Math.max(c.y + CROP_MIN_SIZE, Math.min(py, naturalHeight.value))
+    c.height = newBottom - c.y
+  } else if (cropDragHandle.value === 'left') {
+    const newX = Math.max(0, Math.min(px, c.x + c.width - CROP_MIN_SIZE))
+    c.width += c.x - newX
+    c.x = newX
+  } else if (cropDragHandle.value === 'right') {
+    const newRight = Math.max(c.x + CROP_MIN_SIZE, Math.min(px, naturalWidth.value))
+    c.width = newRight - c.x
+  }
+  emit('update:cropRect', c)
+}
+
+function onCropHandleUp() {
+  cropDragHandle.value = null
+}
 </script>
 
 <template>
@@ -175,7 +226,7 @@ watch(() => props.src, () => {
       <video
         ref="videoEl"
         :src="src"
-        :controls="!logoEditing"
+        :controls="!logoEditing && !cropEditing"
         @loadedmetadata="onLoadedMetadata"
         @play="onPlay"
       />
@@ -216,8 +267,65 @@ watch(() => props.src, () => {
         width: dragRect.width + 'px',
         height: dragRect.height + 'px',
       }" />
+
+      <!--
+        Recorte: lo que queda fuera del rectángulo se oscurece con cuatro
+        franjas (arriba/abajo/izquierda/derecha), y cuatro tiradores en los
+        bordes del rectángulo permiten ajustarlo a mano.
+      -->
+      <template v-if="cropEditing && cropRect && naturalWidth && naturalHeight">
+        <div class="crop-dim" :style="{ left: 0, top: 0, right: 0, height: (cropRect.y / naturalHeight * 100) + '%' }" />
+        <div class="crop-dim" :style="{ left: 0, bottom: 0, right: 0, height: (100 - (cropRect.y + cropRect.height) / naturalHeight * 100) + '%' }" />
+        <div class="crop-dim" :style="{
+          left: 0,
+          top: (cropRect.y / naturalHeight * 100) + '%',
+          width: (cropRect.x / naturalWidth * 100) + '%',
+          height: (cropRect.height / naturalHeight * 100) + '%',
+        }" />
+        <div class="crop-dim" :style="{
+          right: 0,
+          top: (cropRect.y / naturalHeight * 100) + '%',
+          width: (100 - (cropRect.x + cropRect.width) / naturalWidth * 100) + '%',
+          height: (cropRect.height / naturalHeight * 100) + '%',
+        }" />
+        <div
+          class="crop-rect"
+          :style="{
+            left: (cropRect.x / naturalWidth * 100) + '%',
+            top: (cropRect.y / naturalHeight * 100) + '%',
+            width: (cropRect.width / naturalWidth * 100) + '%',
+            height: (cropRect.height / naturalHeight * 100) + '%',
+          }"
+        >
+          <div
+            class="crop-handle top"
+            @pointerdown="onCropHandleDown('top', $event)"
+            @pointermove="onCropHandleMove"
+            @pointerup="onCropHandleUp"
+          />
+          <div
+            class="crop-handle bottom"
+            @pointerdown="onCropHandleDown('bottom', $event)"
+            @pointermove="onCropHandleMove"
+            @pointerup="onCropHandleUp"
+          />
+          <div
+            class="crop-handle left"
+            @pointerdown="onCropHandleDown('left', $event)"
+            @pointermove="onCropHandleMove"
+            @pointerup="onCropHandleUp"
+          />
+          <div
+            class="crop-handle right"
+            @pointerdown="onCropHandleDown('right', $event)"
+            @pointermove="onCropHandleMove"
+            @pointerup="onCropHandleUp"
+          />
+        </div>
+      </template>
     </div>
     <p v-if="logoEditing" class="hint">Dibuja un rectángulo sobre lo que quieres tapar.</p>
+    <p v-if="cropEditing" class="hint">Arrastra los bordes del recuadro para ajustar el recorte.</p>
   </div>
 </template>
 
@@ -259,6 +367,50 @@ video {
 }
 .logo-box.dragging {
   background: rgba(10, 132, 255, 0.18);
+}
+.crop-dim {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+.crop-rect {
+  position: absolute;
+  border: 1.5px solid #fff;
+  box-sizing: border-box;
+}
+.crop-handle {
+  position: absolute;
+  background: #fff;
+  border-radius: 3px;
+  touch-action: none;
+}
+.crop-handle.top,
+.crop-handle.bottom {
+  left: 50%;
+  width: 36px;
+  height: 6px;
+  margin-left: -18px;
+  cursor: ns-resize;
+}
+.crop-handle.top {
+  top: -3px;
+}
+.crop-handle.bottom {
+  bottom: -3px;
+}
+.crop-handle.left,
+.crop-handle.right {
+  top: 50%;
+  width: 6px;
+  height: 36px;
+  margin-top: -18px;
+  cursor: ew-resize;
+}
+.crop-handle.left {
+  left: -3px;
+}
+.crop-handle.right {
+  right: -3px;
 }
 .hint {
   margin: 0;

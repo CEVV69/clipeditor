@@ -2,7 +2,7 @@
 export interface ToolDef {
   id: string
   label: string
-  icon: 'cut' | 'speed' | 'logo'
+  icon: 'cut' | 'speed' | 'logo' | 'crop'
 }
 
 defineProps<{
@@ -38,9 +38,13 @@ defineEmits<{
         <line x1="12" y1="13" x2="15.5" y2="9.3" />
         <circle cx="12" cy="13" r="1.2" fill="currentColor" stroke="none" />
       </svg>
-      <svg v-else class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <svg v-else-if="tool.icon === 'logo'" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <rect x="4.5" y="6.5" width="15" height="11" rx="2" />
         <line x1="4.5" y1="6.5" x2="19.5" y2="17.5" />
+      </svg>
+      <svg v-else class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 2v15a2 2 0 0 0 2 2h13" />
+        <path d="M2 7h15a2 2 0 0 1 2 2v13" />
       </svg>
       <span class="label">{{ tool.label }}</span>
     </button>

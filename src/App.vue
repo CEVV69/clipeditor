@@ -6,13 +6,15 @@ import ToolNav, { type ToolDef } from './components/ToolNav.vue'
 import TrimPanel from './components/TrimPanel.vue'
 import VolumeSpeedPanel from './components/VolumeSpeedPanel.vue'
 import LogoPanel from './components/LogoPanel.vue'
+import AspectRatioPanel from './components/AspectRatioPanel.vue'
 import { useFfmpeg } from './ffmpeg/useFfmpeg'
-import type { LogoRegion } from './ffmpeg/commandBuilder'
+import type { CropRect, LogoRegion } from './ffmpeg/commandBuilder'
 
 const TOOLS: ToolDef[] = [
   { id: 'trim', label: 'Cortar', icon: 'cut' },
   { id: 'volume-speed', label: 'Volumen y velocidad', icon: 'speed' },
   { id: 'logo', label: 'Quitar logo', icon: 'logo' },
+  { id: 'aspect', label: 'Proporción', icon: 'crop' },
 ]
 
 const activeTool = ref<string>('trim')
@@ -34,6 +36,9 @@ const logoEditing = ref(false)
 const logoRegions = ref<LogoRegion[]>([])
 const MAX_LOGO_REGIONS = 3
 
+const cropRect = ref<CropRect | null>(null)
+const activeCropPreset = ref<string | null>('original')
+
 const resultUrl = ref('')
 const errorMessage = ref('')
 
@@ -50,6 +55,8 @@ function resetForNewFile(selected: File) {
   speed.value = 1
   logoRegions.value = []
   logoEditing.value = false
+  cropRect.value = null
+  activeCropPreset.value = 'original'
   resultUrl.value = ''
   errorMessage.value = ''
   activeTool.value = 'trim'
@@ -63,6 +70,44 @@ function onDuration(seconds: number) {
 function onNaturalSize(size: { width: number; height: number }) {
   frameWidth.value = size.width
   frameHeight.value = size.height
+  // Arranca sin recortar nada (el rectángulo cubre el fotograma completo),
+  // listo para ajustar a mano o elegir una proporción.
+  cropRect.value = { x: 0, y: 0, width: size.width, height: size.height }
+}
+
+// Centra el recorte más grande posible con la proporción elegida dentro del
+// video original. "Original" vuelve a dejar el fotograma completo.
+function selectCropPreset(id: string) {
+  activeCropPreset.value = id
+  if (!frameWidth.value || !frameHeight.value) return
+  if (id === 'original') {
+    cropRect.value = { x: 0, y: 0, width: frameWidth.value, height: frameHeight.value }
+    return
+  }
+  const [rw, rh] = id.split(':').map(Number)
+  const targetRatio = rw / rh
+  const frameRatio = frameWidth.value / frameHeight.value
+  let width: number
+  let height: number
+  if (targetRatio > frameRatio) {
+    width = frameWidth.value
+    height = width / targetRatio
+  } else {
+    height = frameHeight.value
+    width = height * targetRatio
+  }
+  cropRect.value = {
+    x: (frameWidth.value - width) / 2,
+    y: (frameHeight.value - height) / 2,
+    width,
+    height,
+  }
+}
+
+// Ajustar un borde a mano dejó de corresponder a cualquier preset.
+function onCropRectUpdate(rect: CropRect) {
+  cropRect.value = rect
+  activeCropPreset.value = null
 }
 
 // Alterna el modo de dibujo para la siguiente zona (hasta un máximo de 3).
@@ -122,6 +167,7 @@ async function onExport() {
       logoRegions: logoRegions.value,
       frameWidth: frameWidth.value,
       frameHeight: frameHeight.value,
+      cropRect: cropRect.value,
     })
     if (resultUrl.value) URL.revokeObjectURL(resultUrl.value)
     resultUrl.value = URL.createObjectURL(blob)
@@ -164,6 +210,8 @@ const exportDisabled = computed(() => exporting.value || loading.value)
         :src="sourceUrl"
         :logo-editing="logoEditing && activeTool === 'logo'"
         :logo-regions="logoRegions"
+        :crop-editing="activeTool === 'aspect'"
+        :crop-rect="cropRect"
         :volume="volume"
         :speed="speed"
         :seek-to="seekTo"
@@ -171,6 +219,7 @@ const exportDisabled = computed(() => exporting.value || loading.value)
         @natural-size="onNaturalSize"
         @region-drawn="onRegionDrawn"
         @drawing-cancelled="onDrawingCancelled"
+        @update:crop-rect="onCropRectUpdate"
       />
 
       <TrimPanel
@@ -188,11 +237,18 @@ const exportDisabled = computed(() => exporting.value || loading.value)
       />
 
       <LogoPanel
-        v-else
+        v-else-if="activeTool === 'logo'"
         :logo-editing="logoEditing"
         :regions-count="logoRegions.length"
         @start-selecting="startSelecting"
         @clear-all="clearAllLogoRegions"
+      />
+
+      <AspectRatioPanel
+        v-else
+        :active-preset="activeCropPreset"
+        :has-crop="cropRect !== null"
+        @select-preset="selectCropPreset"
       />
 
       <button class="export" type="button" :disabled="exportDisabled" @click="onExport">
