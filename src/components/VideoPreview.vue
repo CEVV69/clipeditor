@@ -79,6 +79,13 @@ function onLoadedMetadata() {
 function onPointerDown(ev: PointerEvent) {
   if (!videoEl.value) return
   ev.preventDefault()
+  // Captura explícita del puntero: así, aunque el cursor salga del
+  // recuadro de dibujo antes de soltar (o el gesto lo entregue de forma
+  // rara, como a veces pasa con trackpad en Safari), el "pointerup" que
+  // cierra el trazo sigue llegando a este mismo elemento en vez de
+  // perderse. Sin esto, un trazo "fallido" podía dejar dragging=true
+  // para siempre y el botón se quedaba pegado en "Dibujando…".
+  ;(ev.target as HTMLElement).setPointerCapture?.(ev.pointerId)
   const rect = videoEl.value.getBoundingClientRect()
   dragStart.value = { x: ev.clientX - rect.left, y: ev.clientY - rect.top }
   dragRect.value = { left: dragStart.value.x, top: dragStart.value.y, width: 0, height: 0 }
@@ -98,8 +105,11 @@ function onPointerMove(ev: PointerEvent) {
   }
 }
 
-function onPointerUp() {
-  if (!dragging.value || !videoEl.value || !dragRect.value) return
+function finishDrag() {
+  if (!dragging.value || !videoEl.value || !dragRect.value) {
+    dragging.value = false
+    return
+  }
   dragging.value = false
 
   const rect = videoEl.value.getBoundingClientRect()
@@ -120,8 +130,26 @@ function onPointerUp() {
   }
 }
 
+// Si el gesto se cancela (el sistema lo interrumpe) en vez de terminar con
+// un "pointerup" normal, igual hay que cerrar el trazo; de lo contrario
+// queda "dragging" encendido sin que nada lo vuelva a apagar.
+function onPointerCancel() {
+  dragging.value = false
+}
+
+// Red de seguridad: si por lo que sea queda un trazo a medias cuando se
+// sale del modo de dibujo (cambiando de herramienta, por ejemplo), no debe
+// quedar un estado colgado — ni el rectángulo a medio dibujar ni "dragging".
+watch(() => props.logoEditing, (editing) => {
+  if (!editing) {
+    dragging.value = false
+    dragRect.value = null
+  }
+})
+
 // Si cambia el video, se pierde cualquier región de logo marcada sobre el anterior.
 watch(() => props.src, () => {
+  dragging.value = false
   dragRect.value = null
   emit('update:logoRegion', null)
 })
@@ -148,7 +176,8 @@ watch(() => props.src, () => {
         class="draw-overlay"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
+        @pointerup="finishDrag"
+        @pointercancel="onPointerCancel"
       />
       <div v-if="logoRegion && !dragging" class="logo-box saved" :style="{
         left: (logoRegion.x / naturalWidth * 100) + '%',
