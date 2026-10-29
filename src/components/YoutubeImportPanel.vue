@@ -5,8 +5,12 @@ import { useYoutubeImport } from '../youtube/useYoutubeImport'
 
 const emit = defineEmits<{ (e: 'selected', file: File): void }>()
 
+// Safari también expone getDisplayMedia, pero sin poder elegir "esta
+// pestaña" puntual (solo ventana/pantalla completa), así que el resultado
+// queda sucio con el resto de la interfaz. Se exige un Chromium real.
+const isChromiumBrowser = /Chrome|Chromium|Edg\//.test(navigator.userAgent) && !/OPR\//.test(navigator.userAgent)
 const supportsCapture =
-  typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia
+  typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia && isChromiumBrowser
 
 const urlInput = ref('')
 const inputError = ref('')
