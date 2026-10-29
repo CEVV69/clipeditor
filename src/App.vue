@@ -85,18 +85,33 @@ function readFileAsDataUrl(selected: File): Promise<string> {
 
 async function resetForNewFile(selected: File) {
   fileLoadError.value = ''
-  loadingFile.value = true
-  let dataUrl: string
-  try {
-    dataUrl = await readFileAsDataUrl(selected)
-  } catch {
+
+  // El data: URL (necesario para que una imagen se vea en la app instalada)
+  // solo tiene sentido para imágenes — son chicas. Un video de cientos de
+  // MB o una grabación larga de YouTube, codificado entero en una sola
+  // cadena de texto, se queda pegado o agota la memoria. Para video se usa
+  // blob: como siempre (ya confirmado que funciona bien en la app
+  // instalada para el resultado exportado).
+  if (selected.type.startsWith('image/')) {
+    loadingFile.value = true
+    let dataUrl: string
+    try {
+      dataUrl = await readFileAsDataUrl(selected)
+    } catch {
+      loadingFile.value = false
+      fileLoadError.value = 'No se pudo leer este archivo. Intenta de nuevo.'
+      return
+    }
     loadingFile.value = false
-    fileLoadError.value = 'No se pudo leer este archivo. Intenta de nuevo.'
-    return
+    if (sourceUrl.value) URL.revokeObjectURL(sourceUrl.value)
+    file.value = selected
+    sourceUrl.value = dataUrl
+  } else {
+    if (sourceUrl.value) URL.revokeObjectURL(sourceUrl.value)
+    file.value = selected
+    sourceUrl.value = URL.createObjectURL(selected)
   }
-  loadingFile.value = false
-  file.value = selected
-  sourceUrl.value = dataUrl
+
   duration.value = 0
   trimStart.value = 0
   trimEnd.value = 0
