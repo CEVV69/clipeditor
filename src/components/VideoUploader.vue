@@ -5,17 +5,42 @@ import YoutubeImportPanel from './YoutubeImportPanel.vue'
 const emit = defineEmits<{ (e: 'selected', file: File): void }>()
 
 const mode = ref<'file' | 'youtube'>('file')
+const rejectionError = ref('')
+
+// Las fotos de iPhone/Mac quedan en HEIC por defecto — ni el navegador las
+// muestra de forma confiable (solo Safari, a medias) ni el motor de edición
+// las puede procesar. file.type suele venir vacío para HEIC en varios
+// navegadores, así que se revisa también la extensión del nombre.
+function isHeic(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return (
+    file.type === 'image/heic' ||
+    file.type === 'image/heif' ||
+    name.endsWith('.heic') ||
+    name.endsWith('.heif')
+  )
+}
+
+function handleFile(file: File) {
+  if (isHeic(file)) {
+    rejectionError.value =
+      'Esta foto está en formato HEIC, que no se puede mostrar ni editar acá. Conviértela antes a JPG o PNG: ábrela con Vista Previa en tu Mac → Archivo → Exportar → elige JPEG.'
+    return
+  }
+  rejectionError.value = ''
+  emit('selected', file)
+}
 
 function onInputChange(ev: Event) {
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
-  if (file) emit('selected', file)
+  if (file) handleFile(file)
 }
 
 function onDrop(ev: DragEvent) {
   ev.preventDefault()
   const file = ev.dataTransfer?.files?.[0]
-  if (file) emit('selected', file)
+  if (file) handleFile(file)
 }
 </script>
 
@@ -44,6 +69,8 @@ function onDrop(ev: DragEvent) {
     </label>
 
     <YoutubeImportPanel v-else @selected="(file) => emit('selected', file)" />
+
+    <p v-if="rejectionError" class="error">{{ rejectionError }}</p>
   </div>
 </template>
 
@@ -112,5 +139,11 @@ function onDrop(ev: DragEvent) {
 .dropzone-content small {
   max-width: 280px;
   font-size: 0.8rem;
+}
+.error {
+  margin: 0;
+  color: var(--accent-2);
+  font-size: 0.85rem;
+  text-align: center;
 }
 </style>
