@@ -27,7 +27,7 @@ const {
   resultFile,
   load,
   startRecording,
-  cancelRecording,
+  stopRecording,
   reset,
 } = useYoutubeImport()
 
@@ -117,7 +117,7 @@ function formatTime(seconds: number): string {
       <div v-if="state === 'recording'" class="recording">
         <span class="dot" />
         <span>Grabando… {{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
-        <button type="button" class="pill ghost" @click="cancelRecording">Cancelar</button>
+        <button type="button" class="pill ghost" @click="stopRecording">Detener y usar</button>
       </div>
     </template>
   </div>

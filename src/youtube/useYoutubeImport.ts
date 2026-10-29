@@ -36,7 +36,6 @@ export function useYoutubeImport() {
   let recorder: MediaRecorder | null = null
   let stream: MediaStream | null = null
   let progressTimer: number | null = null
-  let cancelled = false
 
   function stopProgressTimer() {
     if (progressTimer !== null) {
@@ -105,7 +104,6 @@ export function useYoutubeImport() {
   async function startRecording() {
     if (!player) return
     errorMessage.value = ''
-    cancelled = false
 
     let capturedStream: MediaStream
     try {
@@ -134,13 +132,6 @@ export function useYoutubeImport() {
       stream?.getTracks().forEach((t) => t.stop())
       stream = null
 
-      if (cancelled) {
-        cancelled = false
-        resultFile.value = null
-        state.value = 'ready'
-        return
-      }
-
       if (chunks.length > 0) {
         const blob = new Blob(chunks, { type: mimeType || 'video/webm' })
         resultFile.value = new File([blob], 'youtube-import.webm', { type: blob.type })
@@ -166,14 +157,19 @@ export function useYoutubeImport() {
     }, 500)
   }
 
-  function cancelRecording() {
-    cancelled = true
+  // Detener a mano guarda lo grabado hasta ese momento, igual que cuando el
+  // video termina solo — no se bota nada.
+  function stopRecording() {
     player?.pauseVideo()
     if (recorder && recorder.state !== 'inactive') {
       recorder.stop()
-    } else {
-      state.value = 'ready'
     }
+  }
+
+  // Antes de empezar a grabar sí tiene sentido un cancelar que bote todo:
+  // vuelve a la pantalla inicial sin dejar nada a medias.
+  function cancelReady() {
+    reset()
   }
 
   function reset() {
@@ -198,7 +194,8 @@ export function useYoutubeImport() {
     resultFile,
     load,
     startRecording,
-    cancelRecording,
+    stopRecording,
+    cancelReady,
     reset,
   }
 }
