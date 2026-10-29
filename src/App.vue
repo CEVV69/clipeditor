@@ -57,7 +57,16 @@ const exporting = ref(false)
 
 function resetForNewFile(selected: File) {
   file.value = selected
-  sourceUrl.value = URL.createObjectURL(selected)
+  // Un "blob:" URL falla para mostrar el archivo elegido cuando ClipEditor
+  // corre como app instalada (PWA) — Chrome lo bloquea ahí aunque en una
+  // pestaña normal funcione igual. Un "data:" URL (el archivo entero
+  // codificado en el propio texto de la URL) no tiene ese problema.
+  sourceUrl.value = ''
+  const reader = new FileReader()
+  reader.onload = () => {
+    if (typeof reader.result === 'string') sourceUrl.value = reader.result
+  }
+  reader.readAsDataURL(selected)
   duration.value = 0
   trimStart.value = 0
   trimEnd.value = 0
