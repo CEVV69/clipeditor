@@ -5,12 +5,8 @@ import { useYoutubeImport } from '../youtube/useYoutubeImport'
 
 const emit = defineEmits<{ (e: 'selected', file: File): void }>()
 
-// Safari también expone getDisplayMedia, pero sin poder elegir "esta
-// pestaña" puntual (solo ventana/pantalla completa), así que el resultado
-// queda sucio con el resto de la interfaz. Se exige un Chromium real.
-const isChromiumBrowser = /Chrome|Chromium|Edg\//.test(navigator.userAgent) && !/OPR\//.test(navigator.userAgent)
 const supportsCapture =
-  typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia && isChromiumBrowser
+  typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia
 
 const urlInput = ref('')
 const inputError = ref('')
@@ -69,7 +65,7 @@ function formatTime(seconds: number): string {
 <template>
   <div class="yt-import glass">
     <p v-if="!supportsCapture" class="hint">
-      Esta función necesita Chrome o Edge en computador.
+      Esta función necesita un navegador de computador (no funciona en celular).
     </p>
 
     <template v-else>
@@ -106,7 +102,8 @@ function formatTime(seconds: number): string {
           Es un video largo — importarlo toma el mismo tiempo que dura, porque se graba mientras se reproduce.
         </p>
         <p class="hint">
-          Al grabar, el navegador te va a pedir elegir qué pestaña compartir — elige esta misma pestaña.
+          Al grabar, el video pasa a pantalla completa y el navegador te pide elegir qué compartir —
+          elige esta pestaña o ventana (la que esté en pantalla completa).
         </p>
         <div class="actions">
           <button type="button" class="pill accent" @click="startRecording">Grabar</button>
@@ -185,6 +182,13 @@ function formatTime(seconds: number): string {
 }
 .player.hidden {
   display: none;
+}
+.player:fullscreen {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+  background: #000;
 }
 .ready {
   display: flex;

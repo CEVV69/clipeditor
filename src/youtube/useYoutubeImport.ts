@@ -113,7 +113,7 @@ export function useYoutubeImport() {
         ...({ preferCurrentTab: true, selfBrowserSurface: 'include' } as Record<string, unknown>),
       } as DisplayMediaStreamOptions)
     } catch {
-      errorMessage.value = 'No se compartió ninguna pestaña, no se pudo grabar.'
+      errorMessage.value = 'No se compartió ninguna pestaña ni ventana, no se pudo grabar.'
       state.value = 'error'
       return
     }
