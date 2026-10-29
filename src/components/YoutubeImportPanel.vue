@@ -10,7 +10,11 @@ const supportsCapture =
 
 const urlInput = ref('')
 const inputError = ref('')
-const playerContainer = ref<HTMLElement | null>(null)
+// El reproductor reemplaza el elemento que se le pasa por su propio iframe,
+// así que se usa un contenedor aparte (estable, nunca reemplazado) para
+// pantalla completa.
+const playerWrapper = ref<HTMLElement | null>(null)
+const playerMount = ref<HTMLElement | null>(null)
 const fullscreenEnabled = ref(false)
 
 const LONG_VIDEO_SECONDS = 30 * 60
@@ -45,8 +49,8 @@ async function onSubmit() {
     inputError.value = 'Pega un link válido de YouTube.'
     return
   }
-  if (!playerContainer.value) return
-  await load(playerContainer.value, id)
+  if (!playerMount.value || !playerWrapper.value) return
+  await load(playerMount.value, playerWrapper.value, id)
 }
 
 function onReset() {
@@ -91,10 +95,12 @@ function formatTime(seconds: number): string {
       <p v-if="state === 'error' && errorMessage" class="error">{{ errorMessage }}</p>
 
       <div
-        ref="playerContainer"
+        ref="playerWrapper"
         class="player"
         :class="{ hidden: state === 'idle' || state === 'loading' || state === 'error' }"
-      />
+      >
+        <div ref="playerMount" class="player-mount" />
+      </div>
 
       <div v-if="state === 'ready'" class="ready">
         <strong v-if="title" class="title">{{ title }}</strong>
@@ -187,6 +193,10 @@ function formatTime(seconds: number): string {
 }
 .player.hidden {
   display: none;
+}
+.player-mount {
+  width: 100%;
+  height: 100%;
 }
 .player:fullscreen {
   width: 100%;

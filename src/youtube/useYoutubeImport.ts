@@ -92,9 +92,12 @@ export function useYoutubeImport() {
     if (recorder && recorder.state !== 'inactive') recorder.stop()
   }
 
-  async function load(element: HTMLElement, videoId: string): Promise<void> {
+  // `mountEl` es reemplazado por YouTube con su propio <iframe> — por eso
+  // la pantalla completa se pide sobre `wrapperEl`, que nunca se toca y
+  // sigue conteniendo ese iframe como hijo.
+  async function load(mountEl: HTMLElement, wrapperEl: HTMLElement, videoId: string): Promise<void> {
     destroyPlayer()
-    containerEl = element
+    containerEl = wrapperEl
     state.value = 'loading'
     errorMessage.value = ''
     resultFile.value = null
@@ -102,7 +105,7 @@ export function useYoutubeImport() {
     const YTApi = await loadYouTubeIframeApi()
 
     return new Promise((resolve) => {
-      player = new YTApi.Player(element, {
+      player = new YTApi.Player(mountEl, {
         videoId,
         width: '100%',
         height: '100%',
