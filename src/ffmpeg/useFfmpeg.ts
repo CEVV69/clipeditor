@@ -1,7 +1,13 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { ref } from 'vue'
-import { buildFfmpegArgs, buildImageFfmpegArgs, type EditSettings, type ImageEditSettings } from './commandBuilder'
+import {
+  buildFfmpegArgs,
+  buildImageFfmpegArgs,
+  buildFrameExtractArgs,
+  type EditSettings,
+  type ImageEditSettings,
+} from './commandBuilder'
 
 const IMAGE_MIME: Record<string, string> = {
   png: 'image/png',
@@ -112,5 +118,33 @@ export function useFfmpeg() {
     return new Blob([bytes], { type: IMAGE_MIME[extension] })
   }
 
-  return { loaded, loading, progress, logLines, load, runEdit, runImageEdit }
+  async function runExtractFrame(file: File, timestamp: number): Promise<Blob> {
+    await load()
+
+    const extension = file.name.includes('.') ? file.name.split('.').pop() : 'mp4'
+    const inputName = `input.${extension}`
+    const outputName = 'frame.png'
+
+    progress.value = 0
+    await ffmpeg.writeFile(inputName, await fetchFile(file))
+
+    const args = buildFrameExtractArgs(inputName, outputName, timestamp)
+    const exitCode = await ffmpeg.exec(args)
+
+    if (exitCode !== 0) {
+      await ffmpeg.deleteFile(inputName).catch(() => {})
+      await ffmpeg.deleteFile(outputName).catch(() => {})
+      const lastLines = logLines.value.slice(-5).join(' | ')
+      throw new Error(`No se pudo capturar el fotograma (código ${exitCode}): ${lastLines}`)
+    }
+
+    const data = await ffmpeg.readFile(outputName)
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+
+    const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data
+    return new Blob([bytes], { type: 'image/png' })
+  }
+
+  return { loaded, loading, progress, logLines, load, runEdit, runImageEdit, runExtractFrame }
 }

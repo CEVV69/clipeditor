@@ -34,6 +34,10 @@ export interface EditSettings {
   frameHeight: number
   /** Recorte de proporción/encuadre, o null si se exporta el fotograma completo. */
   cropRect: CropRect | null
+  /** Giro en sentido horario, en grados. */
+  rotation: 0 | 90 | 180 | 270
+  flipHorizontal: boolean
+  flipVertical: boolean
 }
 
 /**
@@ -160,11 +164,52 @@ function buildCropFilter(
   return { x, y, w, h }
 }
 
+/**
+ * Va siempre al final de la cadena de filtros — gira/voltea el resultado ya
+ * recortado y sin logos, así que no hace falta tocar ninguna coordenada de
+ * las otras herramientas (que siguen calculándose sobre el fotograma
+ * original, sin girar).
+ */
+function buildOrientationFilterExpr(
+  rotation: 0 | 90 | 180 | 270,
+  flipHorizontal: boolean,
+  flipVertical: boolean,
+): string | null {
+  const steps: string[] = []
+  if (rotation === 90) steps.push('transpose=1')
+  else if (rotation === 180) steps.push('transpose=1', 'transpose=1')
+  else if (rotation === 270) steps.push('transpose=2')
+  if (flipHorizontal) steps.push('hflip')
+  if (flipVertical) steps.push('vflip')
+  return steps.length > 0 ? steps.join(',') : null
+}
+
+function appendFilter(
+  videoFilter: string,
+  currentLabel: string | null,
+  expr: string,
+  outLabel: string,
+): { videoFilter: string; currentLabel: string | null } {
+  if (currentLabel) {
+    return { videoFilter: `${videoFilter};[${currentLabel}]${expr}[${outLabel}]`, currentLabel: outLabel }
+  }
+  // Sin una etiqueta previa (ej. solo un crop simple, sin logo), la cadena
+  // sigue siendo lineal — se puede encadenar con comas sin necesidad de
+  // nombrar los nodos, igual que ya hacía "speed" en buildFfmpegArgs.
+  if (videoFilter) {
+    return { videoFilter: `${videoFilter},${expr}`, currentLabel: null }
+  }
+  return { videoFilter: expr, currentLabel: null }
+}
+
 export interface ImageEditSettings {
   logoRegions: LogoRegion[]
   frameWidth: number
   frameHeight: number
   cropRect: CropRect | null
+  rotation: 0 | 90 | 180 | 270
+  flipHorizontal: boolean
+  flipVertical: boolean
 }
 
 /**
@@ -177,10 +222,10 @@ export function buildImageFfmpegArgs(
   outputName: string,
   settings: ImageEditSettings,
 ): string[] {
-  const { logoRegions, frameWidth, frameHeight, cropRect } = settings
-
+  const { logoRegions, frameWidth, frameHeight, cropRect, rotation, flipHorizontal, flipVertical } = settings
   const logo = buildLogoFilter(logoRegions, frameWidth, frameHeight)
   const crop = buildCropFilter(cropRect, frameWidth, frameHeight)
+  const orientationExpr = buildOrientationFilterExpr(rotation, flipHorizontal, flipVertical)
 
   let videoFilter = ''
   let currentLabel: string | null = null
@@ -192,11 +237,11 @@ export function buildImageFfmpegArgs(
 
   if (crop) {
     const cropExpr = `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y}`
-    if (currentLabel) {
-      videoFilter += `;[${currentLabel}]${cropExpr}[vcrop]`
-    } else {
-      videoFilter = cropExpr
-    }
+    ;({ videoFilter, currentLabel } = appendFilter(videoFilter, currentLabel, cropExpr, 'vcrop'))
+  }
+
+  if (orientationExpr) {
+    ;({ videoFilter, currentLabel } = appendFilter(videoFilter, currentLabel, orientationExpr, 'vorient'))
   }
 
   const args = ['-i', inputName]
@@ -209,10 +254,11 @@ export function buildImageFfmpegArgs(
 }
 
 export function buildFfmpegArgs(inputName: string, outputName: string, settings: EditSettings): string[] {
-  const { trimStart, trimEnd, volume, speed, logoRegions, frameWidth, frameHeight, cropRect } = settings
+  const { trimStart, trimEnd, volume, speed, logoRegions, frameWidth, frameHeight, cropRect, rotation, flipHorizontal, flipVertical } = settings
 
   const logo = buildLogoFilter(logoRegions, frameWidth, frameHeight)
   const crop = buildCropFilter(cropRect, frameWidth, frameHeight)
+  const orientationExpr = buildOrientationFilterExpr(rotation, flipHorizontal, flipVertical)
 
   let videoFilter = ''
   let currentLabel: string | null = null
@@ -224,23 +270,16 @@ export function buildFfmpegArgs(inputName: string, outputName: string, settings:
 
   if (crop) {
     const cropExpr = `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y}`
-    if (currentLabel) {
-      videoFilter += `;[${currentLabel}]${cropExpr}[vcrop]`
-      currentLabel = 'vcrop'
-    } else {
-      videoFilter = cropExpr
-    }
+    ;({ videoFilter, currentLabel } = appendFilter(videoFilter, currentLabel, cropExpr, 'vcrop'))
   }
 
   if (speed !== 1) {
     const speedExpr = `setpts=PTS/${speed}`
-    if (currentLabel) {
-      videoFilter += `;[${currentLabel}]${speedExpr}`
-    } else if (videoFilter) {
-      videoFilter += `,${speedExpr}`
-    } else {
-      videoFilter = speedExpr
-    }
+    ;({ videoFilter, currentLabel } = appendFilter(videoFilter, currentLabel, speedExpr, 'vspeed'))
+  }
+
+  if (orientationExpr) {
+    ;({ videoFilter, currentLabel } = appendFilter(videoFilter, currentLabel, orientationExpr, 'vorient'))
   }
 
   const audioFilters: string[] = []
@@ -269,4 +308,14 @@ export function buildFfmpegArgs(inputName: string, outputName: string, settings:
   args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', outputName)
 
   return args
+}
+
+/**
+ * Saca un solo fotograma como imagen — "-ss" antes de "-i" es mucho más
+ * rápido que buscar después (salta directo cerca de ese punto en vez de
+ * decodificar desde el principio), y como solo se pide 1 fotograma la
+ * precisión exacta de ese salto rápido no importa acá.
+ */
+export function buildFrameExtractArgs(inputName: string, outputName: string, timestamp: number): string[] {
+  return ['-ss', timestamp.toFixed(3), '-i', inputName, '-frames:v', '1', outputName]
 }

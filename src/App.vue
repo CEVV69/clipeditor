@@ -7,6 +7,8 @@ import TrimPanel from './components/TrimPanel.vue'
 import VolumeSpeedPanel from './components/VolumeSpeedPanel.vue'
 import LogoPanel from './components/LogoPanel.vue'
 import AspectRatioPanel from './components/AspectRatioPanel.vue'
+import OrientationPanel from './components/OrientationPanel.vue'
+import FramePanel from './components/FramePanel.vue'
 import { useFfmpeg } from './ffmpeg/useFfmpeg'
 import type { CropRect, LogoRegion } from './ffmpeg/commandBuilder'
 
@@ -15,12 +17,17 @@ const VIDEO_TOOLS: ToolDef[] = [
   { id: 'volume-speed', label: 'Volumen y velocidad', icon: 'speed' },
   { id: 'logo', label: 'Quitar logo', icon: 'logo' },
   { id: 'aspect', label: 'Proporción', icon: 'crop' },
+  { id: 'rotate', label: 'Rotar/voltear', icon: 'rotate' },
+  { id: 'frame', label: 'Capturar fotograma', icon: 'frame' },
 ]
 // Cortar y Volumen/velocidad son conceptos de tiempo: no aplican a una
-// imagen fija, así que su menú solo trae Quitar logo y Proporción.
+// imagen fija, así que su menú solo trae Quitar logo, Proporción y
+// Rotar/voltear. Capturar fotograma tampoco aplica: una imagen ya es un
+// solo fotograma.
 const IMAGE_TOOLS: ToolDef[] = [
   { id: 'logo', label: 'Quitar logo', icon: 'logo' },
   { id: 'aspect', label: 'Proporción', icon: 'crop' },
+  { id: 'rotate', label: 'Rotar/voltear', icon: 'rotate' },
 ]
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp'])
@@ -49,10 +56,20 @@ const MAX_LOGO_REGIONS = 3
 const cropRect = ref<CropRect | null>(null)
 const activeCropPreset = ref<string | null>('original')
 
+const rotation = ref<0 | 90 | 180 | 270>(0)
+const flipHorizontal = ref(false)
+const flipVertical = ref(false)
+
+const captureTime = ref(0)
+const capturingFrame = ref(false)
+const frameProgress = ref(0)
+const frameErrorMessage = ref('')
+
 const resultUrl = ref('')
+const resultMediaType = ref<'video' | 'image'>('video')
 const errorMessage = ref('')
 
-const { loading, progress, runEdit, runImageEdit } = useFfmpeg()
+const { loading, progress, runEdit, runImageEdit, runExtractFrame } = useFfmpeg()
 const exporting = ref(false)
 
 const loadingFile = ref(false)
@@ -121,6 +138,12 @@ async function resetForNewFile(selected: File) {
   logoEditing.value = false
   cropRect.value = null
   activeCropPreset.value = 'original'
+  rotation.value = 0
+  flipHorizontal.value = false
+  flipVertical.value = false
+  captureTime.value = 0
+  capturingFrame.value = false
+  frameErrorMessage.value = ''
   resultUrl.value = ''
   errorMessage.value = ''
   activeTool.value = mediaType.value === 'image' ? 'logo' : 'trim'
@@ -216,6 +239,7 @@ function onToolChange(tool: string) {
     resultUrl.value = ''
   }
   errorMessage.value = ''
+  frameErrorMessage.value = ''
 }
 
 async function onExport() {
@@ -229,6 +253,9 @@ async function onExport() {
           frameWidth: frameWidth.value,
           frameHeight: frameHeight.value,
           cropRect: cropRect.value,
+          rotation: rotation.value,
+          flipHorizontal: flipHorizontal.value,
+          flipVertical: flipVertical.value,
         })
       : await runEdit(file.value, {
           trimStart: trimStart.value,
@@ -239,9 +266,13 @@ async function onExport() {
           frameWidth: frameWidth.value,
           frameHeight: frameHeight.value,
           cropRect: cropRect.value,
+          rotation: rotation.value,
+          flipHorizontal: flipHorizontal.value,
+          flipVertical: flipVertical.value,
         })
     if (resultUrl.value) URL.revokeObjectURL(resultUrl.value)
     resultUrl.value = URL.createObjectURL(blob)
+    resultMediaType.value = mediaType.value
   } catch (err) {
     console.error('export failed', err)
     errorMessage.value = mediaType.value === 'image'
@@ -249,6 +280,26 @@ async function onExport() {
       : 'No se pudo generar el video. Intenta de nuevo.'
   } finally {
     exporting.value = false
+  }
+}
+
+// Capturar un fotograma es una acción aparte de "Ejecutar edición": no
+// combina con recorte/logo/proporción, solo saca una imagen de un momento
+// puntual del video original.
+async function onCaptureFrame() {
+  if (!file.value) return
+  frameErrorMessage.value = ''
+  capturingFrame.value = true
+  try {
+    const blob = await runExtractFrame(file.value, captureTime.value)
+    if (resultUrl.value) URL.revokeObjectURL(resultUrl.value)
+    resultUrl.value = URL.createObjectURL(blob)
+    resultMediaType.value = 'image'
+  } catch (err) {
+    console.error('frame capture failed', err)
+    frameErrorMessage.value = 'No se pudo capturar el fotograma. Intenta de nuevo.'
+  } finally {
+    capturingFrame.value = false
   }
 }
 
@@ -260,7 +311,8 @@ const exportLabel = computed(() => {
 const exportDisabled = computed(() => exporting.value || loading.value)
 
 const resultFileName = computed(() => {
-  if (mediaType.value !== 'image') return 'video-editado.mp4'
+  if (resultMediaType.value !== 'image') return 'video-editado.mp4'
+  if (activeTool.value === 'frame' || mediaType.value === 'video') return 'fotograma.png'
   const name = file.value?.name ?? ''
   const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : 'png'
   return `imagen-editada.${IMAGE_EXTENSIONS.has(ext) ? ext : 'png'}`
@@ -330,20 +382,38 @@ const resultFileName = computed(() => {
       />
 
       <AspectRatioPanel
-        v-else
+        v-else-if="activeTool === 'aspect'"
         :active-preset="activeCropPreset"
         :has-crop="cropRect !== null"
         @select-preset="selectCropPreset"
       />
 
-      <button class="export" type="button" :disabled="exportDisabled" @click="onExport">
+      <OrientationPanel
+        v-else-if="activeTool === 'rotate'"
+        v-model:rotation="rotation"
+        v-model:flip-horizontal="flipHorizontal"
+        v-model:flip-vertical="flipVertical"
+      />
+
+      <FramePanel
+        v-else
+        :duration="duration"
+        v-model:capture-time="captureTime"
+        :capturing="capturingFrame"
+        :progress="progress"
+        :error-message="frameErrorMessage"
+        @seek="seekTo = $event"
+        @capture="onCaptureFrame"
+      />
+
+      <button v-if="activeTool !== 'frame'" class="export" type="button" :disabled="exportDisabled" @click="onExport">
         {{ exportLabel }}
       </button>
 
-      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+      <p v-if="activeTool !== 'frame' && errorMessage" class="error">{{ errorMessage }}</p>
 
       <div v-if="resultUrl" class="result">
-        <video v-if="mediaType === 'video'" :src="resultUrl" controls />
+        <video v-if="resultMediaType === 'video'" :src="resultUrl" controls />
         <img v-else :src="resultUrl" alt="" />
         <a class="download" :href="resultUrl" :download="resultFileName">Descargar</a>
       </div>
