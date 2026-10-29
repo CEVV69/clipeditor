@@ -165,19 +165,6 @@ export function useYoutubeImport() {
 
     stream = capturedStream
 
-    // Recorta la grabación a solo el reproductor cuando el navegador lo
-    // permite (Chrome/Edge con Element Capture) — si no, falla en silencio
-    // y queda la pestaña/ventana completa tal cual se compartió.
-    const [videoTrack] = stream.getVideoTracks()
-    if (videoTrack?.restrictTo && containerEl && 'RestrictionTarget' in window) {
-      try {
-        const target = await RestrictionTarget.fromElement(containerEl)
-        await videoTrack.restrictTo(target)
-      } catch {
-        // Sigue sin recortar.
-      }
-    }
-
     const mimeType = pickMimeType()
     const chunks: Blob[] = []
     const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)

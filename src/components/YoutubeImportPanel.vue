@@ -103,8 +103,8 @@ function formatTime(seconds: number): string {
           Es un video largo — importarlo toma el mismo tiempo que dura, porque se graba mientras se reproduce.
         </p>
         <p class="hint">
-          Al grabar, el navegador te pide elegir qué compartir — elige esta pestaña o ventana. En
-          Chrome/Edge el resultado queda recortado solo al video automáticamente.
+          Al grabar, el navegador te pide elegir qué compartir — elige esta pestaña o ventana. El
+          resultado incluye el resto de esta página alrededor del video.
         </p>
         <label class="checkbox">
           <input v-model="fullscreenEnabled" type="checkbox" />
