@@ -37,6 +37,7 @@ export function useYoutubeImport() {
   let stream: MediaStream | null = null
   let progressTimer: number | null = null
   let containerEl: HTMLElement | null = null
+  let onPlayingOnce: (() => void) | null = null
 
   function stopProgressTimer() {
     if (progressTimer !== null) {
@@ -70,18 +71,20 @@ export function useYoutubeImport() {
     }
   }
 
-  function waitForPlaying(p: YT.Player, timeoutMs = 3000): Promise<void> {
-    const PLAYING = window.YT!.PlayerState.PLAYING
+  // Usa el mismo evento oficial del reproductor (onStateChange) que ya
+  // detecta de forma confiable cuándo el video termina, en vez de preguntar
+  // el estado a cada rato — así se sabe de verdad cuándo arrancó.
+  function waitForPlaying(timeoutMs = 3000): Promise<void> {
     return new Promise((resolve) => {
-      const start = performance.now()
-      function check() {
-        if (p.getPlayerState() === PLAYING || performance.now() - start > timeoutMs) {
-          resolve()
-          return
-        }
-        requestAnimationFrame(check)
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        onPlayingOnce = null
+        resolve()
       }
-      check()
+      onPlayingOnce = finish
+      window.setTimeout(finish, timeoutMs)
     })
   }
 
@@ -131,6 +134,7 @@ export function useYoutubeImport() {
           },
           onStateChange: (e) => {
             if (e.data === YTApi.PlayerState.ENDED) finishRecording()
+            if (e.data === YTApi.PlayerState.PLAYING) onPlayingOnce?.()
           },
         },
       })
@@ -141,14 +145,6 @@ export function useYoutubeImport() {
     if (!player) return
     errorMessage.value = ''
 
-    if (useFullscreen && containerEl) {
-      try {
-        await containerEl.requestFullscreen()
-      } catch {
-        // Si la rechaza, se sigue igual sin pantalla completa.
-      }
-    }
-
     let capturedStream: MediaStream
     try {
       capturedStream = await navigator.mediaDevices.getDisplayMedia({
@@ -157,10 +153,20 @@ export function useYoutubeImport() {
         ...({ preferCurrentTab: true, selfBrowserSurface: 'include' } as Record<string, unknown>),
       } as DisplayMediaStreamOptions)
     } catch {
-      await exitFullscreenIfActive()
       errorMessage.value = 'No se compartió ninguna pestaña ni ventana, no se pudo grabar.'
       state.value = 'error'
       return
+    }
+
+    // Pedirla recién ahora (y no antes de elegir qué compartir) evita que
+    // el navegador la cancele sola al mostrar el diálogo del sistema
+    // encima de una página en pantalla completa.
+    if (useFullscreen && containerEl) {
+      try {
+        await containerEl.requestFullscreen()
+      } catch {
+        // Si la rechaza, se sigue igual sin pantalla completa.
+      }
     }
 
     stream = capturedStream
@@ -201,7 +207,7 @@ export function useYoutubeImport() {
     // grabar — si no, el primer instante muestra la miniatura/título
     // pausado de YouTube en vez del video.
     player.playVideo()
-    await waitForPlaying(player)
+    await waitForPlaying()
 
     mr.start()
     state.value = 'recording'
@@ -234,6 +240,7 @@ export function useYoutubeImport() {
     stream = null
     recorder = null
     containerEl = null
+    onPlayingOnce = null
     state.value = 'idle'
     errorMessage.value = ''
     title.value = ''
