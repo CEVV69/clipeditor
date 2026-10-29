@@ -89,12 +89,9 @@ async function resetForNewFile(selected: File) {
   let dataUrl: string
   try {
     dataUrl = await readFileAsDataUrl(selected)
-  } catch (err) {
+  } catch {
     loadingFile.value = false
-    const msg = err instanceof Error ? err.message : ''
-    fileLoadError.value = msg === 'timeout'
-      ? 'Esto está tardando demasiado. Si es una foto o video reciente de iCloud, ábrelo primero en la app Fotos para que se descargue completo en tu Mac, y vuelve a intentarlo.'
-      : `No se pudo leer ese archivo. Intenta de nuevo. (${msg || 'sin detalle'})`
+    fileLoadError.value = 'No se pudo leer este archivo. Intenta de nuevo.'
     return
   }
   loadingFile.value = false
