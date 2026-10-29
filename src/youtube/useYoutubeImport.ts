@@ -36,6 +36,7 @@ export function useYoutubeImport() {
   let recorder: MediaRecorder | null = null
   let stream: MediaStream | null = null
   let progressTimer: number | null = null
+  let containerEl: HTMLElement | null = null
 
   function stopProgressTimer() {
     if (progressTimer !== null) {
@@ -50,12 +51,47 @@ export function useYoutubeImport() {
     player = null
   }
 
+  // Esc (o cualquier salida de pantalla completa) durante la grabación se
+  // trata como "Detener y usar" — no hay un botón visible encima del video
+  // en pantalla completa para hacerlo de otra forma.
+  function onFullscreenChange() {
+    if (!document.fullscreenElement && state.value === 'recording') {
+      stopRecording()
+    }
+  }
+
+  async function exitFullscreenIfActive() {
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen()
+      } catch {
+        // No hay nada más que hacer si el navegador no la deja cerrar.
+      }
+    }
+  }
+
+  function waitForPlaying(p: YT.Player, timeoutMs = 3000): Promise<void> {
+    const PLAYING = window.YT!.PlayerState.PLAYING
+    return new Promise((resolve) => {
+      const start = performance.now()
+      function check() {
+        if (p.getPlayerState() === PLAYING || performance.now() - start > timeoutMs) {
+          resolve()
+          return
+        }
+        requestAnimationFrame(check)
+      }
+      check()
+    })
+  }
+
   function finishRecording() {
     if (recorder && recorder.state !== 'inactive') recorder.stop()
   }
 
   async function load(element: HTMLElement, videoId: string): Promise<void> {
     destroyPlayer()
+    containerEl = element
     state.value = 'loading'
     errorMessage.value = ''
     resultFile.value = null
@@ -101,9 +137,17 @@ export function useYoutubeImport() {
     })
   }
 
-  async function startRecording() {
+  async function startRecording(useFullscreen: boolean) {
     if (!player) return
     errorMessage.value = ''
+
+    if (useFullscreen && containerEl) {
+      try {
+        await containerEl.requestFullscreen()
+      } catch {
+        // Si la rechaza, se sigue igual sin pantalla completa.
+      }
+    }
 
     let capturedStream: MediaStream
     try {
@@ -113,12 +157,27 @@ export function useYoutubeImport() {
         ...({ preferCurrentTab: true, selfBrowserSurface: 'include' } as Record<string, unknown>),
       } as DisplayMediaStreamOptions)
     } catch {
+      await exitFullscreenIfActive()
       errorMessage.value = 'No se compartió ninguna pestaña ni ventana, no se pudo grabar.'
       state.value = 'error'
       return
     }
 
     stream = capturedStream
+
+    // Recorta la grabación a solo el reproductor cuando el navegador lo
+    // permite (Chrome/Edge con Element Capture) — si no, falla en silencio
+    // y queda la pestaña/ventana completa tal cual se compartió.
+    const [videoTrack] = stream.getVideoTracks()
+    if (videoTrack?.restrictTo && containerEl && 'RestrictionTarget' in window) {
+      try {
+        const target = await RestrictionTarget.fromElement(containerEl)
+        await videoTrack.restrictTo(target)
+      } catch {
+        // Sigue sin recortar.
+      }
+    }
+
     const mimeType = pickMimeType()
     const chunks: Blob[] = []
     const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
@@ -129,6 +188,8 @@ export function useYoutubeImport() {
 
     mr.onstop = () => {
       stopProgressTimer()
+      document.removeEventListener('fullscreenchange', onFullscreenChange)
+      exitFullscreenIfActive()
       stream?.getTracks().forEach((t) => t.stop())
       stream = null
 
@@ -147,10 +208,16 @@ export function useYoutubeImport() {
     stream.getVideoTracks()[0]?.addEventListener('ended', () => {
       if (mr.state !== 'inactive') mr.stop()
     })
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+
+    // Arranca la reproducción y espera a que de verdad empiece antes de
+    // grabar — si no, el primer instante muestra la miniatura/título
+    // pausado de YouTube en vez del video.
+    player.playVideo()
+    await waitForPlaying(player)
 
     mr.start()
     state.value = 'recording'
-    player.playVideo()
 
     progressTimer = window.setInterval(() => {
       currentTime.value = player?.getCurrentTime() ?? 0
@@ -174,9 +241,12 @@ export function useYoutubeImport() {
 
   function reset() {
     destroyPlayer()
+    document.removeEventListener('fullscreenchange', onFullscreenChange)
+    exitFullscreenIfActive()
     stream?.getTracks().forEach((t) => t.stop())
     stream = null
     recorder = null
+    containerEl = null
     state.value = 'idle'
     errorMessage.value = ''
     title.value = ''

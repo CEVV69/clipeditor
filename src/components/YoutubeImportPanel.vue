@@ -11,6 +11,7 @@ const supportsCapture =
 const urlInput = ref('')
 const inputError = ref('')
 const playerContainer = ref<HTMLElement | null>(null)
+const fullscreenEnabled = ref(false)
 
 const LONG_VIDEO_SECONDS = 30 * 60
 
@@ -102,11 +103,15 @@ function formatTime(seconds: number): string {
           Es un video largo — importarlo toma el mismo tiempo que dura, porque se graba mientras se reproduce.
         </p>
         <p class="hint">
-          Al grabar, el video pasa a pantalla completa y el navegador te pide elegir qué compartir —
-          elige esta pestaña o ventana (la que esté en pantalla completa).
+          Al grabar, el navegador te pide elegir qué compartir — elige esta pestaña o ventana. En
+          Chrome/Edge el resultado queda recortado solo al video automáticamente.
         </p>
+        <label class="checkbox">
+          <input v-model="fullscreenEnabled" type="checkbox" />
+          Pantalla completa al grabar (resultado más limpio en Safari; para detenerla, tecla Esc)
+        </label>
         <div class="actions">
-          <button type="button" class="pill accent" @click="startRecording">Grabar</button>
+          <button type="button" class="pill accent" @click="startRecording(fullscreenEnabled)">Grabar</button>
           <button type="button" class="pill ghost" @click="onReset">Cancelar</button>
         </div>
       </div>
@@ -199,6 +204,13 @@ function formatTime(seconds: number): string {
   font-size: 0.9rem;
 }
 .ready .duration {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text-dim);
   font-size: 0.8rem;
 }
