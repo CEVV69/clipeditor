@@ -76,7 +76,7 @@ function readFileAsDataUrl(selected: File): Promise<string> {
     }
     reader.onerror = () => {
       window.clearTimeout(timeoutId)
-      reject(new Error('read-error'))
+      reject(new Error(`read-error:${reader.error?.name ?? 'desconocido'}`))
     }
     reader.onabort = () => reject(new Error('timeout'))
     reader.readAsDataURL(selected)
@@ -91,9 +91,10 @@ async function resetForNewFile(selected: File) {
     dataUrl = await readFileAsDataUrl(selected)
   } catch (err) {
     loadingFile.value = false
-    fileLoadError.value = err instanceof Error && err.message === 'timeout'
+    const msg = err instanceof Error ? err.message : ''
+    fileLoadError.value = msg === 'timeout'
       ? 'Esto está tardando demasiado. Si es una foto o video reciente de iCloud, ábrelo primero en la app Fotos para que se descargue completo en tu Mac, y vuelve a intentarlo.'
-      : 'No se pudo leer ese archivo. Intenta de nuevo.'
+      : `No se pudo leer ese archivo. Intenta de nuevo. (${msg || 'sin detalle'})`
     return
   }
   loadingFile.value = false
