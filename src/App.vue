@@ -55,18 +55,50 @@ const errorMessage = ref('')
 const { loading, progress, runEdit, runImageEdit } = useFfmpeg()
 const exporting = ref(false)
 
-function resetForNewFile(selected: File) {
-  file.value = selected
-  // Un "blob:" URL falla para mostrar el archivo elegido cuando ClipEditor
-  // corre como app instalada (PWA) — Chrome lo bloquea ahí aunque en una
-  // pestaña normal funcione igual. Un "data:" URL (el archivo entero
-  // codificado en el propio texto de la URL) no tiene ese problema.
-  sourceUrl.value = ''
-  const reader = new FileReader()
-  reader.onload = () => {
-    if (typeof reader.result === 'string') sourceUrl.value = reader.result
+const loadingFile = ref(false)
+const fileLoadError = ref('')
+
+// Lee el archivo completo a un "data:" URL antes de dejar entrar a la
+// edición — un "blob:" URL falla para mostrar el archivo cuando ClipEditor
+// corre como app instalada (PWA), aunque en una pestaña normal funcione
+// igual. 20s de margen: una foto/video reciente de iCloud que todavía no
+// se descargó completo a la Mac se queda leyendo en silencio sin avisar
+// nada, así que después de eso se corta y se explica qué puede estar
+// pasando en vez de dejar al usuario esperando algo que nunca va a llegar.
+function readFileAsDataUrl(selected: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    const timeoutId = window.setTimeout(() => reader.abort(), 20000)
+    reader.onload = () => {
+      window.clearTimeout(timeoutId)
+      if (typeof reader.result === 'string') resolve(reader.result)
+      else reject(new Error('unexpected-result'))
+    }
+    reader.onerror = () => {
+      window.clearTimeout(timeoutId)
+      reject(new Error('read-error'))
+    }
+    reader.onabort = () => reject(new Error('timeout'))
+    reader.readAsDataURL(selected)
+  })
+}
+
+async function resetForNewFile(selected: File) {
+  fileLoadError.value = ''
+  loadingFile.value = true
+  let dataUrl: string
+  try {
+    dataUrl = await readFileAsDataUrl(selected)
+  } catch (err) {
+    loadingFile.value = false
+    fileLoadError.value = err instanceof Error && err.message === 'timeout'
+      ? 'Esto está tardando demasiado. Si es una foto o video reciente de iCloud, ábrelo primero en la app Fotos para que se descargue completo en tu Mac, y vuelve a intentarlo.'
+      : 'No se pudo leer ese archivo. Intenta de nuevo.'
+    return
   }
-  reader.readAsDataURL(selected)
+  loadingFile.value = false
+  file.value = selected
+  sourceUrl.value = dataUrl
   duration.value = 0
   trimStart.value = 0
   trimEnd.value = 0
@@ -228,7 +260,11 @@ const resultFileName = computed(() => {
       <h1>ClipEditor</h1>
     </header>
 
-    <VideoUploader v-if="!file" @selected="resetForNewFile" />
+    <template v-if="!file">
+      <VideoUploader @selected="resetForNewFile" />
+      <p v-if="loadingFile" class="hint">Cargando…</p>
+      <p v-if="fileLoadError" class="error">{{ fileLoadError }}</p>
+    </template>
 
     <template v-else>
       <div class="toolbar">
@@ -367,6 +403,12 @@ header h1 {
 }
 .error {
   color: var(--accent-2);
+  font-size: 0.85rem;
+  margin: 0;
+  text-align: center;
+}
+.hint {
+  color: var(--text-dim);
   font-size: 0.85rem;
   margin: 0;
   text-align: center;
