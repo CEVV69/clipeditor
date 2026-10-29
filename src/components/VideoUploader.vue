@@ -31,13 +31,13 @@ function onDrop(ev: DragEvent) {
     </div>
 
     <label v-if="mode === 'file'" class="dropzone glass" @dragover.prevent @drop="onDrop">
-      <input type="file" accept="video/*" @change="onInputChange" hidden />
+      <input type="file" accept="video/*,image/*" @change="onInputChange" hidden />
       <div class="dropzone-content">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 16V4M12 4l-4 4M12 4l4 4" />
           <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
         </svg>
-        <strong>Arrastra un video aquí</strong>
+        <strong>Arrastra un video o imagen aquí</strong>
         <span>o haz clic para elegir un archivo</span>
         <small>No se sube a ningún servidor — todo se procesa en tu propio navegador.</small>
       </div>

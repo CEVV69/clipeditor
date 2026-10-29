@@ -4,6 +4,7 @@ import type { CropRect, LogoRegion } from '../ffmpeg/commandBuilder'
 
 const props = defineProps<{
   src: string
+  mediaType: 'video' | 'image'
   logoEditing: boolean
   logoRegions: LogoRegion[]
   cropEditing: boolean
@@ -22,7 +23,10 @@ const emit = defineEmits<{
   (e: 'update:cropRect', rect: CropRect): void
 }>()
 
-const videoEl = ref<HTMLVideoElement | null>(null)
+// El mismo elemento de referencia sirve para <video> o <img> — todo el
+// manejo de puntero de abajo (dibujar zonas, arrastrar el recorte) solo
+// necesita getBoundingClientRect(), que ambos tienen igual.
+const mediaEl = ref<HTMLVideoElement | HTMLImageElement | null>(null)
 const naturalWidth = ref(0)
 const naturalHeight = ref(0)
 
@@ -41,10 +45,10 @@ let gainNode: GainNode | null = null
 let sourceNode: MediaElementAudioSourceNode | null = null
 
 function ensureAudioGraph() {
-  if (sourceNode || !videoEl.value) return
+  if (sourceNode || !(mediaEl.value instanceof HTMLVideoElement)) return
   const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
   audioCtx = new Ctx()
-  sourceNode = audioCtx.createMediaElementSource(videoEl.value)
+  sourceNode = audioCtx.createMediaElementSource(mediaEl.value)
   gainNode = audioCtx.createGain()
   gainNode.gain.value = Math.max(0, props.volume)
   sourceNode.connect(gainNode).connect(audioCtx.destination)
@@ -59,11 +63,11 @@ watch(() => props.volume, (v) => {
   if (gainNode) gainNode.gain.value = Math.max(0, v)
 })
 watch(() => props.speed, (s) => {
-  if (videoEl.value) videoEl.value.playbackRate = s
+  if (mediaEl.value instanceof HTMLVideoElement) mediaEl.value.playbackRate = s
 }, { immediate: true })
 watch(() => props.seekTo, (t) => {
-  if (videoEl.value && t !== null && Number.isFinite(t)) {
-    videoEl.value.currentTime = t
+  if (mediaEl.value instanceof HTMLVideoElement && t !== null && Number.isFinite(t)) {
+    mediaEl.value.currentTime = t
   }
 })
 
@@ -74,16 +78,23 @@ onBeforeUnmount(() => {
 })
 
 function onLoadedMetadata() {
-  if (!videoEl.value) return
-  naturalWidth.value = videoEl.value.videoWidth
-  naturalHeight.value = videoEl.value.videoHeight
-  emit('duration', videoEl.value.duration)
+  if (!(mediaEl.value instanceof HTMLVideoElement)) return
+  naturalWidth.value = mediaEl.value.videoWidth
+  naturalHeight.value = mediaEl.value.videoHeight
+  emit('duration', mediaEl.value.duration)
   emit('natural-size', { width: naturalWidth.value, height: naturalHeight.value })
-  videoEl.value.playbackRate = props.speed
+  mediaEl.value.playbackRate = props.speed
+}
+
+function onImageLoad() {
+  if (!(mediaEl.value instanceof HTMLImageElement)) return
+  naturalWidth.value = mediaEl.value.naturalWidth
+  naturalHeight.value = mediaEl.value.naturalHeight
+  emit('natural-size', { width: naturalWidth.value, height: naturalHeight.value })
 }
 
 function onPointerDown(ev: PointerEvent) {
-  if (!videoEl.value) return
+  if (!mediaEl.value) return
   ev.preventDefault()
   // Captura explícita del puntero: así, aunque el cursor salga del
   // recuadro de dibujo antes de soltar (o el gesto lo entregue de forma
@@ -92,15 +103,15 @@ function onPointerDown(ev: PointerEvent) {
   // perderse. Sin esto, un trazo "fallido" podía dejar dragging=true
   // para siempre y el botón se quedaba pegado en "Dibujando…".
   ;(ev.target as HTMLElement).setPointerCapture?.(ev.pointerId)
-  const rect = videoEl.value.getBoundingClientRect()
+  const rect = mediaEl.value.getBoundingClientRect()
   dragStart.value = { x: ev.clientX - rect.left, y: ev.clientY - rect.top }
   dragRect.value = { left: dragStart.value.x, top: dragStart.value.y, width: 0, height: 0 }
   dragging.value = true
 }
 
 function onPointerMove(ev: PointerEvent) {
-  if (!dragging.value || !videoEl.value) return
-  const rect = videoEl.value.getBoundingClientRect()
+  if (!dragging.value || !mediaEl.value) return
+  const rect = mediaEl.value.getBoundingClientRect()
   const x = ev.clientX - rect.left
   const y = ev.clientY - rect.top
   dragRect.value = {
@@ -112,13 +123,13 @@ function onPointerMove(ev: PointerEvent) {
 }
 
 function finishDrag() {
-  if (!dragging.value || !videoEl.value || !dragRect.value) {
+  if (!dragging.value || !mediaEl.value || !dragRect.value) {
     dragging.value = false
     return
   }
   dragging.value = false
 
-  const rect = videoEl.value.getBoundingClientRect()
+  const rect = mediaEl.value.getBoundingClientRect()
   const scaleX = naturalWidth.value / rect.width
   const scaleY = naturalHeight.value / rect.height
   const drawn = dragRect.value
@@ -202,8 +213,8 @@ function onCropHandleDown(handle: CropHandle, ev: PointerEvent) {
 }
 
 function onCropHandleMove(ev: PointerEvent) {
-  if (!cropDragHandle.value || !videoEl.value || !props.cropRect) return
-  const rect = videoEl.value.getBoundingClientRect()
+  if (!cropDragHandle.value || !mediaEl.value || !props.cropRect) return
+  const rect = mediaEl.value.getBoundingClientRect()
   const scaleX = naturalWidth.value / rect.width
   const scaleY = naturalHeight.value / rect.height
 
@@ -246,12 +257,14 @@ function onCropHandleUp() {
   <div class="preview-wrap">
     <div class="stage" :class="{ 'is-editing-logo': logoEditing }">
       <video
-        ref="videoEl"
+        v-if="mediaType === 'video'"
+        ref="mediaEl"
         :src="src"
         :controls="!logoEditing && !cropEditing"
         @loadedmetadata="onLoadedMetadata"
         @play="onPlay"
       />
+      <img v-else ref="mediaEl" :src="src" @load="onImageLoad" alt="" />
       <!--
         Mientras se dibuja la región, un overlay transparente recibe el
         arrastre en vez del <video>: así un clic o un gesto de reproducción
@@ -350,7 +363,7 @@ function onCropHandleUp() {
       </template>
     </div>
     <p v-if="logoEditing" class="hint">Dibuja un rectángulo sobre lo que quieres tapar.</p>
-    <p v-if="cropEditing" class="hint">Arrastra el video para centrar lo que quieres conservar, o los bordes del recuadro para ajustar el tamaño del recorte.</p>
+    <p v-if="cropEditing" class="hint">Arrastra para centrar lo que quieres conservar, o los bordes del recuadro para ajustar el tamaño del recorte.</p>
   </div>
 </template>
 
@@ -369,7 +382,8 @@ function onCropHandleUp() {
   overflow: hidden;
   background: #000;
 }
-video {
+video,
+img {
   display: block;
   width: 100%;
   max-height: 60vh;

@@ -10,17 +10,27 @@ import AspectRatioPanel from './components/AspectRatioPanel.vue'
 import { useFfmpeg } from './ffmpeg/useFfmpeg'
 import type { CropRect, LogoRegion } from './ffmpeg/commandBuilder'
 
-const TOOLS: ToolDef[] = [
+const VIDEO_TOOLS: ToolDef[] = [
   { id: 'trim', label: 'Cortar', icon: 'cut' },
   { id: 'volume-speed', label: 'Volumen y velocidad', icon: 'speed' },
   { id: 'logo', label: 'Quitar logo', icon: 'logo' },
   { id: 'aspect', label: 'Proporción', icon: 'crop' },
 ]
+// Cortar y Volumen/velocidad son conceptos de tiempo: no aplican a una
+// imagen fija, así que su menú solo trae Quitar logo y Proporción.
+const IMAGE_TOOLS: ToolDef[] = [
+  { id: 'logo', label: 'Quitar logo', icon: 'logo' },
+  { id: 'aspect', label: 'Proporción', icon: 'crop' },
+]
+
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp'])
 
 const activeTool = ref<string>('trim')
 
 const file = ref<File | null>(null)
 const sourceUrl = ref('')
+const mediaType = computed<'video' | 'image'>(() => (file.value?.type.startsWith('image/') ? 'image' : 'video'))
+const tools = computed<ToolDef[]>(() => (mediaType.value === 'image' ? IMAGE_TOOLS : VIDEO_TOOLS))
 
 const duration = ref(0)
 const trimStart = ref(0)
@@ -42,7 +52,7 @@ const activeCropPreset = ref<string | null>('original')
 const resultUrl = ref('')
 const errorMessage = ref('')
 
-const { loading, progress, runEdit } = useFfmpeg()
+const { loading, progress, runEdit, runImageEdit } = useFfmpeg()
 const exporting = ref(false)
 
 function resetForNewFile(selected: File) {
@@ -59,7 +69,7 @@ function resetForNewFile(selected: File) {
   activeCropPreset.value = 'original'
   resultUrl.value = ''
   errorMessage.value = ''
-  activeTool.value = 'trim'
+  activeTool.value = mediaType.value === 'image' ? 'logo' : 'trim'
 }
 
 function onDuration(seconds: number) {
@@ -159,21 +169,30 @@ async function onExport() {
   errorMessage.value = ''
   exporting.value = true
   try {
-    const blob = await runEdit(file.value, {
-      trimStart: trimStart.value,
-      trimEnd: trimEnd.value,
-      volume: volume.value,
-      speed: speed.value,
-      logoRegions: logoRegions.value,
-      frameWidth: frameWidth.value,
-      frameHeight: frameHeight.value,
-      cropRect: cropRect.value,
-    })
+    const blob = mediaType.value === 'image'
+      ? await runImageEdit(file.value, {
+          logoRegions: logoRegions.value,
+          frameWidth: frameWidth.value,
+          frameHeight: frameHeight.value,
+          cropRect: cropRect.value,
+        })
+      : await runEdit(file.value, {
+          trimStart: trimStart.value,
+          trimEnd: trimEnd.value,
+          volume: volume.value,
+          speed: speed.value,
+          logoRegions: logoRegions.value,
+          frameWidth: frameWidth.value,
+          frameHeight: frameHeight.value,
+          cropRect: cropRect.value,
+        })
     if (resultUrl.value) URL.revokeObjectURL(resultUrl.value)
     resultUrl.value = URL.createObjectURL(blob)
   } catch (err) {
     console.error('export failed', err)
-    errorMessage.value = 'No se pudo generar el video. Intenta de nuevo.'
+    errorMessage.value = mediaType.value === 'image'
+      ? 'No se pudo generar la imagen. Intenta de nuevo.'
+      : 'No se pudo generar el video. Intenta de nuevo.'
   } finally {
     exporting.value = false
   }
@@ -185,6 +204,13 @@ const exportLabel = computed(() => {
   return 'Ejecutar edición'
 })
 const exportDisabled = computed(() => exporting.value || loading.value)
+
+const resultFileName = computed(() => {
+  if (mediaType.value !== 'image') return 'video-editado.mp4'
+  const name = file.value?.name ?? ''
+  const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : 'png'
+  return `imagen-editada.${IMAGE_EXTENSIONS.has(ext) ? ext : 'png'}`
+})
 </script>
 
 <template>
@@ -197,8 +223,8 @@ const exportDisabled = computed(() => exporting.value || loading.value)
 
     <template v-else>
       <div class="toolbar">
-        <ToolNav :tools="TOOLS" :model-value="activeTool" :disabled="false" @update:model-value="onToolChange" />
-        <button class="change-video" type="button" @click="file = null" title="Elegir otro video">
+        <ToolNav :tools="tools" :model-value="activeTool" :disabled="false" @update:model-value="onToolChange" />
+        <button class="change-video" type="button" @click="file = null" title="Elegir otro archivo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" />
             <path d="M18 3v4h-4M6 21v-4h4" />
@@ -208,6 +234,7 @@ const exportDisabled = computed(() => exporting.value || loading.value)
 
       <VideoPreview
         :src="sourceUrl"
+        :media-type="mediaType"
         :logo-editing="logoEditing && activeTool === 'logo'"
         :logo-regions="logoRegions"
         :crop-editing="activeTool === 'aspect'"
@@ -258,8 +285,9 @@ const exportDisabled = computed(() => exporting.value || loading.value)
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
 
       <div v-if="resultUrl" class="result">
-        <video :src="resultUrl" controls />
-        <a class="download" :href="resultUrl" download="video-editado.mp4">Descargar</a>
+        <video v-if="mediaType === 'video'" :src="resultUrl" controls />
+        <img v-else :src="resultUrl" alt="" />
+        <a class="download" :href="resultUrl" :download="resultFileName">Descargar</a>
       </div>
     </template>
   </div>
@@ -342,7 +370,8 @@ header h1 {
   gap: 12px;
   padding-top: 8px;
 }
-.result video {
+.result video,
+.result img {
   width: 100%;
   max-height: 60vh;
   border-radius: 16px;

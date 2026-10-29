@@ -160,6 +160,54 @@ function buildCropFilter(
   return { x, y, w, h }
 }
 
+export interface ImageEditSettings {
+  logoRegions: LogoRegion[]
+  frameWidth: number
+  frameHeight: number
+  cropRect: CropRect | null
+}
+
+/**
+ * Mismos filtros de logo y recorte que el video, aplicados a una sola
+ * imagen (ffmpeg la trata como un "video" de un solo fotograma) — sin
+ * recorte por tiempo ni filtros de audio, que no tienen sentido acá.
+ */
+export function buildImageFfmpegArgs(
+  inputName: string,
+  outputName: string,
+  settings: ImageEditSettings,
+): string[] {
+  const { logoRegions, frameWidth, frameHeight, cropRect } = settings
+
+  const logo = buildLogoFilter(logoRegions, frameWidth, frameHeight)
+  const crop = buildCropFilter(cropRect, frameWidth, frameHeight)
+
+  let videoFilter = ''
+  let currentLabel: string | null = null
+
+  if (logo) {
+    videoFilter = logo.chain
+    currentLabel = logo.outputLabel
+  }
+
+  if (crop) {
+    const cropExpr = `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y}`
+    if (currentLabel) {
+      videoFilter += `;[${currentLabel}]${cropExpr}[vcrop]`
+    } else {
+      videoFilter = cropExpr
+    }
+  }
+
+  const args = ['-i', inputName]
+  if (videoFilter) {
+    args.push('-vf', videoFilter)
+  }
+  args.push('-frames:v', '1', outputName)
+
+  return args
+}
+
 export function buildFfmpegArgs(inputName: string, outputName: string, settings: EditSettings): string[] {
   const { trimStart, trimEnd, volume, speed, logoRegions, frameWidth, frameHeight, cropRect } = settings
 

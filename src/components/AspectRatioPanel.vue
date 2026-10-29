@@ -21,7 +21,7 @@ defineEmits<{
 <template>
   <div class="panel glass">
     <p class="hint">
-      Elige una proporción y arrastra el video para centrar lo que quieres conservar. También puedes
+      Elige una proporción y arrastra para centrar lo que quieres conservar. También puedes
       ajustar los bordes del recuadro a mano, horizontal y vertical.
     </p>
     <div class="presets">
