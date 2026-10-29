@@ -34,6 +34,13 @@ const dragging = ref(false)
 const dragStart = ref({ x: 0, y: 0 })
 const dragRect = ref<{ left: number; top: number; width: number; height: number } | null>(null)
 
+// Medir getBoundingClientRect() en cada pointermove, justo después de que
+// el movimiento anterior ya escribió nuevos estilos, fuerza al navegador a
+// recalcular el diseño en cada evento (decenas por segundo) — se nota
+// como lentitud al arrastrar. El tamaño del video no cambia a mitad de un
+// arrastre, así que basta con medirlo una sola vez al empezar.
+let dragBoundRect: DOMRect | null = null
+
 // El control nativo de volumen de <video> no pasa del 100%, así que el
 // audio se enruta siempre por Web Audio y el volumen real lo controla la
 // ganancia; así el mismo camino sirve tanto para bajarlo como para
@@ -103,15 +110,16 @@ function onPointerDown(ev: PointerEvent) {
   // perderse. Sin esto, un trazo "fallido" podía dejar dragging=true
   // para siempre y el botón se quedaba pegado en "Dibujando…".
   ;(ev.target as HTMLElement).setPointerCapture?.(ev.pointerId)
-  const rect = mediaEl.value.getBoundingClientRect()
+  dragBoundRect = mediaEl.value.getBoundingClientRect()
+  const rect = dragBoundRect
   dragStart.value = { x: ev.clientX - rect.left, y: ev.clientY - rect.top }
   dragRect.value = { left: dragStart.value.x, top: dragStart.value.y, width: 0, height: 0 }
   dragging.value = true
 }
 
 function onPointerMove(ev: PointerEvent) {
-  if (!dragging.value || !mediaEl.value) return
-  const rect = mediaEl.value.getBoundingClientRect()
+  if (!dragging.value || !dragBoundRect) return
+  const rect = dragBoundRect
   const x = ev.clientX - rect.left
   const y = ev.clientY - rect.top
   dragRect.value = {
@@ -123,13 +131,15 @@ function onPointerMove(ev: PointerEvent) {
 }
 
 function finishDrag() {
-  if (!dragging.value || !mediaEl.value || !dragRect.value) {
+  if (!dragging.value || !dragBoundRect || !dragRect.value) {
     dragging.value = false
+    dragBoundRect = null
     return
   }
   dragging.value = false
 
-  const rect = mediaEl.value.getBoundingClientRect()
+  const rect = dragBoundRect
+  dragBoundRect = null
   const scaleX = naturalWidth.value / rect.width
   const scaleY = naturalHeight.value / rect.height
   const drawn = dragRect.value
@@ -162,6 +172,7 @@ function finishDrag() {
 function onPointerCancel() {
   dragging.value = false
   dragRect.value = null
+  dragBoundRect = null
   emit('drawing-cancelled')
 }
 
@@ -197,10 +208,11 @@ const CROP_MIN_SIZE = 20 // tamaño mínimo del recorte, en píxeles reales del 
 const cropMoveOrigin = ref({ pointerX: 0, pointerY: 0, rectX: 0, rectY: 0 })
 
 function onCropHandleDown(handle: CropHandle, ev: PointerEvent) {
-  if (!props.cropRect) return
+  if (!props.cropRect || !mediaEl.value) return
   ev.preventDefault()
   ev.stopPropagation()
   ;(ev.target as HTMLElement).setPointerCapture?.(ev.pointerId)
+  dragBoundRect = mediaEl.value.getBoundingClientRect()
   cropDragHandle.value = handle
   if (handle === 'move') {
     cropMoveOrigin.value = {
@@ -213,8 +225,8 @@ function onCropHandleDown(handle: CropHandle, ev: PointerEvent) {
 }
 
 function onCropHandleMove(ev: PointerEvent) {
-  if (!cropDragHandle.value || !mediaEl.value || !props.cropRect) return
-  const rect = mediaEl.value.getBoundingClientRect()
+  if (!cropDragHandle.value || !dragBoundRect || !props.cropRect) return
+  const rect = dragBoundRect
   const scaleX = naturalWidth.value / rect.width
   const scaleY = naturalHeight.value / rect.height
 
@@ -250,6 +262,7 @@ function onCropHandleMove(ev: PointerEvent) {
 
 function onCropHandleUp() {
   cropDragHandle.value = null
+  dragBoundRect = null
 }
 </script>
 
