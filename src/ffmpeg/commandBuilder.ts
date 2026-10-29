@@ -262,8 +262,11 @@ export function buildFfmpegArgs(inputName: string, outputName: string, settings:
 
   // Sin filtros de por medio se podría copiar el stream sin recodificar,
   // pero recortar con -c copy puede desincronizar el primer fotograma;
-  // recodificar siempre da un resultado más fiel al recorte pedido.
-  args.push('-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outputName)
+  // recodificar siempre da un resultado más fiel al recorte pedido. El
+  // usuario prefirió mantener esa precisión antes que acelerar con -c copy,
+  // así que la única palanca de velocidad sin perder precisión es un ajuste
+  // de compresión más veloz (el archivo final pesa algo más a cambio).
+  args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', outputName)
 
   return args
 }
