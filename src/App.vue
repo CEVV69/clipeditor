@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import VideoUploader from './components/VideoUploader.vue'
+import MergeView from './components/MergeView.vue'
 import VideoPreview from './components/VideoPreview.vue'
 import ToolNav, { type ToolDef } from './components/ToolNav.vue'
 import TrimPanel from './components/TrimPanel.vue'
@@ -33,6 +34,11 @@ const IMAGE_TOOLS: ToolDef[] = [
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp'])
 
 const activeTool = ref<string>('trim')
+
+// Portada: antes de tener un archivo elegido, el usuario escoge entre
+// editar un solo archivo (lo de siempre) o unir varios videos (pantalla
+// aparte, para no amontonar el menú superior del editor).
+const view = ref<'home' | 'single' | 'merge'>('home')
 
 const file = ref<File | null>(null)
 const sourceUrl = ref('')
@@ -326,9 +332,39 @@ const resultFileName = computed(() => {
     </header>
 
     <template v-if="!file">
-      <VideoUploader @selected="resetForNewFile" />
-      <p v-if="loadingFile" class="hint">Cargando…</p>
-      <p v-if="fileLoadError" class="error">{{ fileLoadError }}</p>
+      <template v-if="view === 'home'">
+        <div class="home-cards">
+          <button class="home-card glass" type="button" @click="view = 'single'">
+            <svg class="home-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7h11M4 12h7M4 17h11" />
+              <circle cx="18" cy="7" r="2.2" />
+              <circle cx="14" cy="17" r="2.2" />
+            </svg>
+            <strong>Editar un archivo</strong>
+            <span>Cortar, quitar logo, ajustar proporción, rotar, capturar fotograma</span>
+          </button>
+          <button class="home-card glass" type="button" @click="view = 'merge'">
+            <svg class="home-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2.5" y="5" width="8" height="8" rx="1.8" />
+              <rect x="13.5" y="11" width="8" height="8" rx="1.8" />
+              <path d="M10.5 9h3a2 2 0 0 1 2 2v2" />
+            </svg>
+            <strong>Unir videos</strong>
+            <span>Une varios clips en uno solo, con música de fondo opcional</span>
+          </button>
+        </div>
+      </template>
+
+      <template v-else-if="view === 'merge'">
+        <MergeView @back="view = 'home'" />
+      </template>
+
+      <template v-else>
+        <button class="back-home" type="button" @click="view = 'home'">← Volver</button>
+        <VideoUploader @selected="resetForNewFile" />
+        <p v-if="loadingFile" class="hint">Cargando…</p>
+        <p v-if="fileLoadError" class="error">{{ fileLoadError }}</p>
+      </template>
     </template>
 
     <template v-else>
@@ -440,6 +476,52 @@ header h1 {
   font-weight: 600;
   letter-spacing: -0.02em;
   text-align: center;
+}
+.home-cards {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.home-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 32px 20px;
+  border-radius: 24px;
+  color: var(--text);
+  transition: background-color 0.15s ease;
+}
+.home-card:hover {
+  background: var(--glass-strong);
+}
+.home-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.home-card strong {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.home-card span {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  max-width: 320px;
+}
+.back-home {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+.back-home:hover {
+  color: var(--text);
 }
 .toolbar {
   width: 100%;

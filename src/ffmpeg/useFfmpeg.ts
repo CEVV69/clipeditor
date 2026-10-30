@@ -5,6 +5,7 @@ import {
   buildFfmpegArgs,
   buildImageFfmpegArgs,
   buildFrameExtractArgs,
+  buildMergeArgs,
   type EditSettings,
   type ImageEditSettings,
 } from './commandBuilder'
@@ -170,5 +171,60 @@ export function useFfmpeg() {
     return new Blob([bytes], { type: 'image/png' })
   }
 
-  return { loaded, loading, progress, logLines, load, runEdit, runImageEdit, runExtractFrame }
+  async function runMerge(
+    clips: { file: File; trimStart: number; trimEnd: number; hasAudio: boolean }[],
+    targetWidth: number,
+    targetHeight: number,
+    music: File | null,
+    musicVolume: number,
+  ): Promise<Blob> {
+    await load()
+    progress.value = 0
+
+    const inputNames: string[] = []
+    for (let i = 0; i < clips.length; i++) {
+      const rawExt = clips[i].file.name.includes('.') ? clips[i].file.name.split('.').pop() : 'mp4'
+      const name = `clip${i}.${rawExt}`
+      await ffmpeg.writeFile(name, await fetchFile(clips[i].file))
+      inputNames.push(name)
+    }
+
+    let musicName: string | null = null
+    if (music) {
+      const rawExt = music.name.includes('.') ? music.name.split('.').pop() : 'mp3'
+      musicName = `music.${rawExt}`
+      await ffmpeg.writeFile(musicName, await fetchFile(music))
+    }
+
+    const outputName = 'merged.mp4'
+    const args = buildMergeArgs(
+      clips.map((c, i) => ({ inputName: inputNames[i], trimStart: c.trimStart, trimEnd: c.trimEnd, hasAudio: c.hasAudio })),
+      targetWidth,
+      targetHeight,
+      musicName,
+      musicVolume,
+      outputName,
+    )
+
+    const cleanup = async () => {
+      for (const name of inputNames) await ffmpeg.deleteFile(name).catch(() => {})
+      if (musicName) await ffmpeg.deleteFile(musicName).catch(() => {})
+      await ffmpeg.deleteFile(outputName).catch(() => {})
+    }
+
+    const exitCode = await ffmpeg.exec(args)
+    if (exitCode !== 0) {
+      await cleanup()
+      const lastLines = logLines.value.slice(-5).join(' | ')
+      throw new Error(`No se pudo unir los videos (código ${exitCode}): ${lastLines}`)
+    }
+
+    const data = await ffmpeg.readFile(outputName)
+    await cleanup()
+
+    const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data
+    return new Blob([bytes], { type: 'video/mp4' })
+  }
+
+  return { loaded, loading, progress, logLines, load, runEdit, runImageEdit, runExtractFrame, runMerge }
 }

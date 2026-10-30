@@ -319,3 +319,88 @@ export function buildFfmpegArgs(inputName: string, outputName: string, settings:
 export function buildFrameExtractArgs(inputName: string, outputName: string, timestamp: number): string[] {
   return ['-ss', timestamp.toFixed(3), '-i', inputName, '-frames:v', '1', outputName]
 }
+
+export interface MergeClipInput {
+  inputName: string
+  trimStart: number
+  trimEnd: number
+  /** Si el clip no trae pista de audio propia, se le agrega silencio del mismo largo. */
+  hasAudio: boolean
+}
+
+/**
+ * Une varios clips en uno solo, cada uno ya recortado a su propio
+ * inicio/fin. Los videos de origen pueden venir en proporciones distintas
+ * (uno horizontal, uno vertical), así que primero se escala cada uno para
+ * CUBRIR el tamaño de destino (el del primer clip) y se recorta lo que
+ * sobre, centrado — igual que "object-fit: cover" en CSS. Así no quedan
+ * franjas negras, a cambio de perder un poco de los bordes en los clips que
+ * no calzan con esa proporción.
+ *
+ * El filtro "concat" exige que TODOS los clips traigan exactamente los
+ * mismos streams (un video + un audio cada uno) — si alguno no tiene pista
+ * de audio propia (pasa con algunas grabaciones de pantalla/cámara),
+ * referenciar su audio inexistente aborta todo el procesamiento. Por eso
+ * cada clip sin audio se empareja con silencio generado del mismo largo
+ * exacto que su recorte ("anullsrc", una fuente de audio vacía, no hace
+ * falta un archivo real para eso).
+ *
+ * Música de fondo opcional: se mezcla con el audio original de los clips
+ * (que se mantiene a su volumen normal) a un volumen más bajo, y si es más
+ * corta que el video final se repite sola con "-stream_loop -1" hasta
+ * completarlo (amix con duration=first corta la mezcla justo al largo del
+ * video, sin que sobre música de más).
+ */
+export function buildMergeArgs(
+  clips: MergeClipInput[],
+  targetWidth: number,
+  targetHeight: number,
+  musicInputName: string | null,
+  musicVolume: number,
+  outputName: string,
+): string[] {
+  const args: string[] = []
+  for (const clip of clips) {
+    args.push('-ss', clip.trimStart.toFixed(3), '-to', clip.trimEnd.toFixed(3), '-i', clip.inputName)
+  }
+  if (musicInputName) {
+    // "-stream_loop" es una opción del INPUT que sigue, no un filtro: hace
+    // que ese archivo se repita solo tantas veces como haga falta.
+    args.push('-stream_loop', '-1', '-i', musicInputName)
+  }
+
+  const w = Math.max(2, Math.round(targetWidth))
+  const h = Math.max(2, Math.round(targetHeight))
+  const FPS = 30 // concat exige que todos los clips compartan la misma tasa de cuadros
+
+  const videoChains = clips.map(
+    (_, i) =>
+      `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fps=${FPS},setsar=1[v${i}]`,
+  )
+  const silenceChains = clips
+    .map((clip, i) =>
+      clip.hasAudio
+        ? null
+        : `anullsrc=channel_layout=stereo:sample_rate=44100:duration=${(clip.trimEnd - clip.trimStart).toFixed(3)}[sil${i}]`,
+    )
+    .filter((c): c is string => c !== null)
+  const concatRefs = clips.map((clip, i) => `[v${i}][${clip.hasAudio ? `${i}:a` : `sil${i}`}]`).join('')
+
+  const allChains = [...videoChains, ...silenceChains]
+  let filter = `${allChains.join(';')};${concatRefs}concat=n=${clips.length}:v=1:a=1[vout][aout0]`
+
+  let audioLabel = '[aout0]'
+  if (musicInputName) {
+    const musicIndex = clips.length
+    // "normalize=0" evita que amix baje solo el volumen del audio original
+    // por tener dos entradas — el balance entre ambos queda a cargo de
+    // musicVolume, no de un promedio automático.
+    filter += `;[${musicIndex}:a]volume=${musicVolume}[bgm];[aout0][bgm]amix=inputs=2:duration=first:normalize=0[aout]`
+    audioLabel = '[aout]'
+  }
+
+  args.push('-filter_complex', filter)
+  args.push('-map', '[vout]', '-map', audioLabel)
+  args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', outputName)
+  return args
+}
