@@ -449,7 +449,7 @@ header h1 {
   gap: 10px;
 }
 .toolbar > :deep(.tool-nav) {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
 }
 .change-video {
