@@ -81,8 +81,8 @@ defineEmits<{
 .tool-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 13px;
+  gap: 5px;
+  padding: 7px 9px;
   background: transparent;
   color: var(--text-dim);
   border: none;

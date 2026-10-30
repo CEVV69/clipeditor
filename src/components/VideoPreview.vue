@@ -400,6 +400,7 @@ img {
   display: block;
   width: 100%;
   max-height: 60vh;
+  object-fit: contain;
 }
 .draw-overlay {
   position: absolute;

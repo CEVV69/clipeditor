@@ -447,11 +447,13 @@ header h1 {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  position: relative;
+}
+.toolbar > :deep(.tool-nav) {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .change-video {
-  position: absolute;
-  right: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -508,6 +510,7 @@ header h1 {
 .result img {
   width: 100%;
   max-height: 60vh;
+  object-fit: contain;
   border-radius: 16px;
 }
 .result .download {
