@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import TrimPanel from './TrimPanel.vue'
 import { useFfmpeg } from '../ffmpeg/useFfmpeg'
 
@@ -23,6 +23,14 @@ const clipVideoEls = new Map<number, HTMLVideoElement>()
 
 const musicFile = ref<File | null>(null)
 const musicVolume = ref(0.25)
+
+const outputName = ref('video-unido')
+// Sin caracteres que rompan un nombre de archivo, y siempre con ".mp4" al
+// final (el usuario no tiene por qué escribir la extensión).
+const downloadFileName = computed(() => {
+  const base = outputName.value.trim().replace(/[\\/:*?"<>|]/g, '') || 'video-unido'
+  return base.toLowerCase().endsWith('.mp4') ? base : `${base}.mp4`
+})
 
 const { loading, progress, runMerge } = useFfmpeg()
 const exporting = ref(false)
@@ -219,6 +227,13 @@ const exportLabel = ref('Unir videos')
       </div>
     </div>
 
+    <div v-if="clips.length >= 2" class="output-name glass">
+      <label>
+        <span class="section-title">Nombre del archivo</span>
+        <input v-model="outputName" type="text" placeholder="video-unido" maxlength="100" />
+      </label>
+    </div>
+
     <button
       v-if="clips.length >= 2"
       class="export"
@@ -234,7 +249,7 @@ const exportLabel = ref('Unir videos')
 
     <div v-if="resultUrl" class="result">
       <video :src="resultUrl" controls />
-      <a class="download" :href="resultUrl" download="video-unido.mp4">Descargar</a>
+      <a class="download" :href="resultUrl" :download="downloadFileName">Descargar</a>
     </div>
   </div>
 </template>
@@ -304,8 +319,9 @@ const exportLabel = ref('Unir videos')
   align-items: flex-start;
 }
 .clip-preview {
-  width: 140px;
-  max-height: 140px;
+  width: 220px;
+  max-height: 180px;
+  object-fit: contain;
   border-radius: 12px;
   background: #000;
   flex-shrink: 0;
@@ -315,7 +331,48 @@ const exportLabel = ref('Unir videos')
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+/* La franja de recorte de cada clip reutiliza TrimPanel (el mismo de
+   "Cortar"), pero más compacta — acá hay varias, una por clip, así que el
+   espacio que gana la vista previa se lo devuelve achicando esto. */
+.clip-body :deep(.panel) {
+  padding: 10px 12px 8px;
+  gap: 8px;
+  border-radius: 14px;
+}
+.clip-body :deep(.track) {
+  height: 22px;
+}
+.clip-body :deep(.range::-webkit-slider-thumb) {
+  width: 15px;
+  height: 15px;
+  margin-top: 3.5px;
+}
+.clip-body :deep(.range::-moz-range-thumb) {
+  width: 15px;
+  height: 15px;
+}
+.clip-body :deep(.stepper button) {
+  width: 22px;
+  height: 22px;
+  font-size: 0.85rem;
+}
+.clip-body :deep(.stepper .time) {
+  font-size: 0.75rem;
+}
+.clip-body :deep(.edge-label) {
+  font-size: 0.65rem;
+}
+
+@media (max-width: 480px) {
+  .clip-card {
+    flex-direction: column;
+  }
+  .clip-preview {
+    width: 100%;
+    max-height: 200px;
+  }
 }
 .clip-header {
   display: flex;
@@ -411,6 +468,28 @@ const exportLabel = ref('Unir videos')
 .music-row .remove:hover {
   background: var(--accent-2);
   color: #fff;
+}
+.output-name {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+}
+.output-name label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.output-name input {
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+.output-name input:focus {
+  outline: 1.5px solid var(--accent);
 }
 .export {
   width: 100%;
