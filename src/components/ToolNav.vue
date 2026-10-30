@@ -61,11 +61,19 @@ defineEmits<{
 
 <style scoped>
 .tool-nav {
-  display: inline-flex;
+  display: flex;
   gap: 2px;
   padding: 3px;
   border-radius: 14px;
   margin: 0 auto;
+  max-width: 100%;
+  overflow-x: auto;
+  /* Oculta la barra de scroll (igual en todos los navegadores que
+     importan acá) — se desliza igual, solo que sin la barra fea. */
+  scrollbar-width: none;
+}
+.tool-nav::-webkit-scrollbar {
+  display: none;
 }
 .tool-nav.disabled {
   opacity: 0.4;
@@ -81,6 +89,8 @@ defineEmits<{
   border-radius: 11px;
   font-size: 0.8rem;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 .tool-btn:hover:not(:disabled):not(.active) {

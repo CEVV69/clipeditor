@@ -423,7 +423,7 @@ const resultFileName = computed(() => {
 
 <style scoped>
 .app {
-  max-width: 640px;
+  max-width: 860px;
   margin: 0 auto;
   padding: 48px 20px 64px;
   display: flex;
