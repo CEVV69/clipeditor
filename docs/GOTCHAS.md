@@ -3,6 +3,46 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## Unir videos (2026-10-30)
+
+Pantalla aparte (`MergeView.vue`), accesible desde una portada con dos tarjetas ("Editar un
+archivo" / "Unir videos") en vez de agregarse al menú del editor de un solo archivo, que ya
+tenía 6 pestañas. Cada clip reutiliza `TrimPanel.vue` (el mismo de "Cortar") para elegir
+inicio/fin, con vista previa más chica; se puede reordenar con flechas arriba/abajo (sin drag,
+a propósito — ver el historial de bugs de arrastre más abajo) y quitar. Música de fondo
+opcional, con volumen ajustable y loop automático si es más corta que el resultado.
+
+- **Proporción de salida = la del primer clip ("cover", sin franjas negras):** decisión
+  explícita del usuario. Cada clip se escala con
+  `scale=W:H:force_original_aspect_ratio=increase,crop=W:H` (el mismo truco de "cubrir y
+  recortar centrado" que `object-fit: cover` en CSS) antes de `concat`, más `fps=30,setsar=1`
+  parejo en todos (el filtro `concat` exige que coincidan).
+- **Clip sin pista de audio rompía TODO el procesamiento (bug real, no hipotético — lo
+  reprodujeron mis propias pruebas al primer intento):** `concat` referencia `[i:a]` para cada
+  clip; si algún input no tiene audio, ffmpeg aborta con "Stream specifier ':a' ... matches no
+  streams" y no procesa nada, ni siquiera los demás clips. Arreglo: a cada clip sin audio se le
+  genera silencio del mismo largo exacto con `anullsrc=channel_layout=stereo:sample_rate=44100:
+  duration=<segundos>` (una fuente de audio vacía dentro del propio filtergraph, no necesita un
+  archivo real), y se referencia esa etiqueta en el `concat` en vez de `[i:a]`.
+- **`video.audioTracks` NO sirve para detectar si un clip trae audio — no existe en Chrome
+  real** (quedaba `undefined` incluso con un video que sí tenía audio, pese a aparecer en
+  algunas referencias de la API como si fuera estándar). Lo que sí funciona, confirmado:
+  `video.captureStream().getAudioTracks().length` — da la respuesta correcta inmediatamente
+  después de `loadedmetadata`, sin necesidad de reproducir el video.
+- **Música mezclada con `amix=inputs=2:duration=first:normalize=0`** — `normalize=0` es
+  necesario porque por defecto `amix` promedia el volumen entre las entradas (bajaría también
+  el audio original solo por tener dos pistas de por medio); con `normalize=0` el balance queda
+  enteramente a cargo del `volume=` que ya se le aplicó a la música antes de mezclarla.
+  `duration=first` corta la mezcla justo al largo del audio original ya concatenado (la primera
+  entrada), así la música de fondo (repetida con `-stream_loop -1` en su propio input) nunca
+  sobra ni falta.
+- **Gotcha de pruebas (no del código):** generar un archivo de video+audio sintético válido con
+  `MediaStream`+`AudioContext`+`MediaRecorder` en este entorno de pruebas headless produce un
+  webm corrupto (`0x00 at pos 36 invalid as first byte of an EBML number`) — ni el navegator
+  puede reproducirlo. Para probar con audio de verdad, mejor generar un `.wav` a mano (cabecera
+  RIFF + PCM 16 bits, unas 20 líneas) en vez de depender de `MediaRecorder` para el audio de
+  prueba.
+
 ## ffmpeg.wasm
 
 - Core desde `dist/esm` de `@ffmpeg/core`, nunca `dist/umd` (el umd tira "failed to import
