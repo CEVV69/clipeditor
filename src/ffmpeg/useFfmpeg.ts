@@ -118,6 +118,14 @@ export function useFfmpeg() {
     return new Blob([bytes], { type: IMAGE_MIME[extension] })
   }
 
+  // El punto exacto que pide el usuario a veces no tiene un fotograma propio
+  // ahí (sobre todo pegado al final del video: el último fotograma real
+  // puede quedar antes de la duración reportada por el contenedor, por una
+  // tasa de cuadros variable o metadata de duración poco precisa). Si
+  // ffmpeg no encuentra nada en ese instante, se reintenta un poco antes,
+  // cada vez más atrás, antes de darlo por fallado.
+  const EXTRACT_RETRY_STEPS = [0, 0.15, 0.4, 0.8, 1.5]
+
   async function runExtractFrame(file: File, timestamp: number): Promise<Blob> {
     await load()
 
@@ -128,19 +136,35 @@ export function useFfmpeg() {
     progress.value = 0
     await ffmpeg.writeFile(inputName, await fetchFile(file))
 
-    const args = buildFrameExtractArgs(inputName, outputName, timestamp)
-    const exitCode = await ffmpeg.exec(args)
-
-    if (exitCode !== 0) {
-      await ffmpeg.deleteFile(inputName).catch(() => {})
+    // Además de un exitCode distinto de cero, "exec" puede directamente
+    // lanzar una excepción (en vez de devolver un código) cuando el punto
+    // pedido cae fuera de lo que el archivo realmente tiene — ambos casos
+    // cuentan como "este intento falló, probar el siguiente margen".
+    let data: Awaited<ReturnType<typeof ffmpeg.readFile>> | null = null
+    let lastError: unknown = null
+    for (const back of EXTRACT_RETRY_STEPS) {
+      const t = Math.max(0, timestamp - back)
+      const args = buildFrameExtractArgs(inputName, outputName, t)
+      try {
+        const exitCode = await ffmpeg.exec(args)
+        if (exitCode === 0) {
+          data = await ffmpeg.readFile(outputName)
+          await ffmpeg.deleteFile(outputName).catch(() => {})
+          break
+        }
+        lastError = new Error(`código ${exitCode}`)
+      } catch (err) {
+        lastError = err
+      }
       await ffmpeg.deleteFile(outputName).catch(() => {})
-      const lastLines = logLines.value.slice(-5).join(' | ')
-      throw new Error(`No se pudo capturar el fotograma (código ${exitCode}): ${lastLines}`)
     }
 
-    const data = await ffmpeg.readFile(outputName)
     await ffmpeg.deleteFile(inputName).catch(() => {})
-    await ffmpeg.deleteFile(outputName).catch(() => {})
+
+    if (!data) {
+      const lastLines = logLines.value.slice(-5).join(' | ')
+      throw new Error(`No se pudo capturar el fotograma (${String(lastError)}): ${lastLines}`)
+    }
 
     const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data
     return new Blob([bytes], { type: 'image/png' })
