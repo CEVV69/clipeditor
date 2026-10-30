@@ -30,6 +30,47 @@ const mediaEl = ref<HTMLVideoElement | HTMLImageElement | null>(null)
 const naturalWidth = ref(0)
 const naturalHeight = ref(0)
 
+// Con "object-fit: contain" el video/imagen puede quedar más chico que su
+// caja (franjas vacías a los lados o arriba/abajo, cuando la proporción del
+// archivo no calza con la proporción disponible) — este rectángulo es el
+// área REAL donde se dibuja el contenido dentro de esa caja, en píxeles
+// relativos a la esquina superior izquierda de `mediaEl`. Sin esto, las
+// zonas de logo y el recorte de proporción se posicionaban como si el
+// contenido llenara toda la caja, y quedaban desplazados hacia esas franjas
+// vacías en vez de alinearse con los bordes reales del video/imagen.
+const contentBox = ref({ offsetX: 0, offsetY: 0, width: 0, height: 0 })
+let resizeObserver: ResizeObserver | null = null
+
+function updateContentBox() {
+  if (!mediaEl.value || !naturalWidth.value || !naturalHeight.value) return
+  const rect = mediaEl.value.getBoundingClientRect()
+  if (rect.width === 0 || rect.height === 0) return
+  const boxAspect = rect.width / rect.height
+  const natAspect = naturalWidth.value / naturalHeight.value
+  let width: number
+  let height: number
+  if (natAspect > boxAspect) {
+    width = rect.width
+    height = rect.width / natAspect
+  } else {
+    height = rect.height
+    width = rect.height * natAspect
+  }
+  contentBox.value = {
+    offsetX: (rect.width - width) / 2,
+    offsetY: (rect.height - height) / 2,
+    width,
+    height,
+  }
+}
+
+/** Igual que `mediaEl.getBoundingClientRect()`, pero recortado al área real del contenido. */
+function getContentClientRect(): DOMRect {
+  const rect = mediaEl.value!.getBoundingClientRect()
+  const { offsetX, offsetY, width, height } = contentBox.value
+  return new DOMRect(rect.left + offsetX, rect.top + offsetY, width, height)
+}
+
 const dragging = ref(false)
 const dragStart = ref({ x: 0, y: 0 })
 const dragRect = ref<{ left: number; top: number; width: number; height: number } | null>(null)
@@ -78,12 +119,6 @@ watch(() => props.seekTo, (t) => {
   }
 })
 
-onBeforeUnmount(() => {
-  sourceNode?.disconnect()
-  gainNode?.disconnect()
-  audioCtx?.close().catch(() => {})
-})
-
 function onLoadedMetadata() {
   if (!(mediaEl.value instanceof HTMLVideoElement)) return
   naturalWidth.value = mediaEl.value.videoWidth
@@ -91,6 +126,7 @@ function onLoadedMetadata() {
   emit('duration', mediaEl.value.duration)
   emit('natural-size', { width: naturalWidth.value, height: naturalHeight.value })
   mediaEl.value.playbackRate = props.speed
+  updateContentBox()
 }
 
 function onImageLoad() {
@@ -98,7 +134,23 @@ function onImageLoad() {
   naturalWidth.value = mediaEl.value.naturalWidth
   naturalHeight.value = mediaEl.value.naturalHeight
   emit('natural-size', { width: naturalWidth.value, height: naturalHeight.value })
+  updateContentBox()
 }
+
+watch(mediaEl, (el) => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  if (!el) return
+  resizeObserver = new ResizeObserver(() => updateContentBox())
+  resizeObserver.observe(el)
+})
+
+onBeforeUnmount(() => {
+  sourceNode?.disconnect()
+  gainNode?.disconnect()
+  audioCtx?.close().catch(() => {})
+  resizeObserver?.disconnect()
+})
 
 function onPointerDown(ev: PointerEvent) {
   if (!mediaEl.value) return
@@ -110,7 +162,7 @@ function onPointerDown(ev: PointerEvent) {
   // perderse. Sin esto, un trazo "fallido" podía dejar dragging=true
   // para siempre y el botón se quedaba pegado en "Dibujando…".
   ;(ev.target as HTMLElement).setPointerCapture?.(ev.pointerId)
-  dragBoundRect = mediaEl.value.getBoundingClientRect()
+  dragBoundRect = getContentClientRect()
   const rect = dragBoundRect
   dragStart.value = { x: ev.clientX - rect.left, y: ev.clientY - rect.top }
   dragRect.value = { left: dragStart.value.x, top: dragStart.value.y, width: 0, height: 0 }
@@ -212,7 +264,7 @@ function onCropHandleDown(handle: CropHandle, ev: PointerEvent) {
   ev.preventDefault()
   ev.stopPropagation()
   ;(ev.target as HTMLElement).setPointerCapture?.(ev.pointerId)
-  dragBoundRect = mediaEl.value.getBoundingClientRect()
+  dragBoundRect = getContentClientRect()
   cropDragHandle.value = handle
   if (handle === 'move') {
     cropMoveOrigin.value = {
@@ -293,87 +345,104 @@ function onCropHandleUp() {
         @pointercancel="onPointerCancel"
       />
       <!--
-        Cada zona marcada se muestra ya difuminada (backdrop-filter
-        desenfoca lo que hay justo detrás, en vivo, incluso reproduciendo),
-        para ver de antemano más o menos cómo va a quedar sin tener que
-        exportar primero.
+        Con "object-fit: contain" el video/imagen puede quedar más chico que
+        su caja (franjas vacías cuando la proporción no calza) — este
+        contenedor marca el área real donde se dibuja el contenido, para que
+        las zonas de logo y el recorte se alineen con el video/imagen de
+        verdad y no con el borde de la caja.
       -->
       <div
-        v-for="(region, i) in logoRegions"
-        :key="i"
-        class="logo-box saved"
+        class="content-box"
         :style="{
-          left: (region.x / naturalWidth * 100) + '%',
-          top: (region.y / naturalHeight * 100) + '%',
-          width: (region.width / naturalWidth * 100) + '%',
-          height: (region.height / naturalHeight * 100) + '%',
+          left: contentBox.offsetX + 'px',
+          top: contentBox.offsetY + 'px',
+          width: contentBox.width + 'px',
+          height: contentBox.height + 'px',
         }"
-      />
-      <div v-if="dragging && dragRect" class="logo-box dragging" :style="{
-        left: dragRect.left + 'px',
-        top: dragRect.top + 'px',
-        width: dragRect.width + 'px',
-        height: dragRect.height + 'px',
-      }" />
-
-      <!--
-        Recorte: lo que queda fuera del rectángulo se oscurece con cuatro
-        franjas (arriba/abajo/izquierda/derecha), y cuatro tiradores en los
-        bordes del rectángulo permiten ajustarlo a mano.
-      -->
-      <template v-if="cropEditing && cropRect && naturalWidth && naturalHeight">
-        <div class="crop-dim" :style="{ left: 0, top: 0, right: 0, height: (cropRect.y / naturalHeight * 100) + '%' }" />
-        <div class="crop-dim" :style="{ left: 0, bottom: 0, right: 0, height: (100 - (cropRect.y + cropRect.height) / naturalHeight * 100) + '%' }" />
-        <div class="crop-dim" :style="{
-          left: 0,
-          top: (cropRect.y / naturalHeight * 100) + '%',
-          width: (cropRect.x / naturalWidth * 100) + '%',
-          height: (cropRect.height / naturalHeight * 100) + '%',
-        }" />
-        <div class="crop-dim" :style="{
-          right: 0,
-          top: (cropRect.y / naturalHeight * 100) + '%',
-          width: (100 - (cropRect.x + cropRect.width) / naturalWidth * 100) + '%',
-          height: (cropRect.height / naturalHeight * 100) + '%',
-        }" />
+      >
+        <!--
+          Cada zona marcada se muestra ya difuminada (backdrop-filter
+          desenfoca lo que hay justo detrás, en vivo, incluso reproduciendo),
+          para ver de antemano más o menos cómo va a quedar sin tener que
+          exportar primero.
+        -->
         <div
-          class="crop-rect"
+          v-for="(region, i) in logoRegions"
+          :key="i"
+          class="logo-box saved"
           :style="{
-            left: (cropRect.x / naturalWidth * 100) + '%',
-            top: (cropRect.y / naturalHeight * 100) + '%',
-            width: (cropRect.width / naturalWidth * 100) + '%',
-            height: (cropRect.height / naturalHeight * 100) + '%',
+            left: (region.x / naturalWidth * 100) + '%',
+            top: (region.y / naturalHeight * 100) + '%',
+            width: (region.width / naturalWidth * 100) + '%',
+            height: (region.height / naturalHeight * 100) + '%',
           }"
-          @pointerdown="onCropHandleDown('move', $event)"
-          @pointermove="onCropHandleMove"
-          @pointerup="onCropHandleUp"
-        >
+        />
+        <div v-if="dragging && dragRect" class="logo-box dragging" :style="{
+          left: dragRect.left + 'px',
+          top: dragRect.top + 'px',
+          width: dragRect.width + 'px',
+          height: dragRect.height + 'px',
+        }" />
+
+        <!--
+          Recorte: lo que queda fuera del rectángulo se oscurece con cuatro
+          franjas (arriba/abajo/izquierda/derecha), y cuatro tiradores en los
+          bordes del rectángulo permiten ajustarlo a mano.
+        -->
+        <template v-if="cropEditing && cropRect && naturalWidth && naturalHeight">
+          <div class="crop-dim" :style="{ left: 0, top: 0, right: 0, height: (cropRect.y / naturalHeight * 100) + '%' }" />
+          <div class="crop-dim" :style="{ left: 0, bottom: 0, right: 0, height: (100 - (cropRect.y + cropRect.height) / naturalHeight * 100) + '%' }" />
+          <div class="crop-dim" :style="{
+            left: 0,
+            top: (cropRect.y / naturalHeight * 100) + '%',
+            width: (cropRect.x / naturalWidth * 100) + '%',
+            height: (cropRect.height / naturalHeight * 100) + '%',
+          }" />
+          <div class="crop-dim" :style="{
+            right: 0,
+            top: (cropRect.y / naturalHeight * 100) + '%',
+            width: (100 - (cropRect.x + cropRect.width) / naturalWidth * 100) + '%',
+            height: (cropRect.height / naturalHeight * 100) + '%',
+          }" />
           <div
-            class="crop-handle top"
-            @pointerdown="onCropHandleDown('top', $event)"
+            class="crop-rect"
+            :style="{
+              left: (cropRect.x / naturalWidth * 100) + '%',
+              top: (cropRect.y / naturalHeight * 100) + '%',
+              width: (cropRect.width / naturalWidth * 100) + '%',
+              height: (cropRect.height / naturalHeight * 100) + '%',
+            }"
+            @pointerdown="onCropHandleDown('move', $event)"
             @pointermove="onCropHandleMove"
             @pointerup="onCropHandleUp"
-          />
-          <div
-            class="crop-handle bottom"
-            @pointerdown="onCropHandleDown('bottom', $event)"
-            @pointermove="onCropHandleMove"
-            @pointerup="onCropHandleUp"
-          />
-          <div
-            class="crop-handle left"
-            @pointerdown="onCropHandleDown('left', $event)"
-            @pointermove="onCropHandleMove"
-            @pointerup="onCropHandleUp"
-          />
-          <div
-            class="crop-handle right"
-            @pointerdown="onCropHandleDown('right', $event)"
-            @pointermove="onCropHandleMove"
-            @pointerup="onCropHandleUp"
-          />
-        </div>
-      </template>
+          >
+            <div
+              class="crop-handle top"
+              @pointerdown="onCropHandleDown('top', $event)"
+              @pointermove="onCropHandleMove"
+              @pointerup="onCropHandleUp"
+            />
+            <div
+              class="crop-handle bottom"
+              @pointerdown="onCropHandleDown('bottom', $event)"
+              @pointermove="onCropHandleMove"
+              @pointerup="onCropHandleUp"
+            />
+            <div
+              class="crop-handle left"
+              @pointerdown="onCropHandleDown('left', $event)"
+              @pointermove="onCropHandleMove"
+              @pointerup="onCropHandleUp"
+            />
+            <div
+              class="crop-handle right"
+              @pointerdown="onCropHandleDown('right', $event)"
+              @pointermove="onCropHandleMove"
+              @pointerup="onCropHandleUp"
+            />
+          </div>
+        </template>
+      </div>
     </div>
     <p v-if="logoEditing" class="hint">Dibuja un rectángulo sobre lo que quieres tapar.</p>
     <p v-if="cropEditing" class="hint">Arrastra para centrar lo que quieres conservar, o los bordes del recuadro para ajustar el tamaño del recorte.</p>
@@ -407,6 +476,9 @@ img {
   inset: 0;
   cursor: crosshair;
   touch-action: none;
+}
+.content-box {
+  position: absolute;
 }
 .logo-box {
   position: absolute;
