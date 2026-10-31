@@ -168,59 +168,27 @@ function onStartRecording() {
         <strong v-if="title" class="title">{{ title }}</strong>
         <span class="duration">Dura {{ formatTime(duration) }}</span>
         <p v-if="estimatedRecordingSeconds > LONG_VIDEO_SECONDS" class="hint">
-          Es un tramo largo — importarlo toma el mismo tiempo que dura, porque se graba mientras se reproduce.
-        </p>
-        <p class="hint">
-          Al grabar, el navegador te pide elegir qué compartir — elige esta pestaña o ventana. El
-          resultado incluye el resto de esta página alrededor del video.
+          Tramo largo: la grabación demora lo mismo que dura.
         </p>
         <div class="trim-range">
-          <span class="quality-label">Grabar solo un tramo (opcional):</span>
           <div class="trim-inputs">
-            <input
-              v-model="trimStartInput"
-              type="text"
-              inputmode="numeric"
-              placeholder="Desde (ej: 8:00)"
-            />
+            <input v-model="trimStartInput" type="text" inputmode="numeric" placeholder="Desde 8:00" />
             <span class="trim-sep">→</span>
-            <input
-              v-model="trimEndInput"
-              type="text"
-              inputmode="numeric"
-              placeholder="Hasta (ej: 17:30)"
-            />
+            <input v-model="trimEndInput" type="text" inputmode="numeric" placeholder="Hasta 17:30" />
           </div>
-          <p class="hint">Déjalo vacío para grabar el video completo.</p>
           <p v-if="trimError" class="error">{{ trimError }}</p>
         </div>
-        <div class="quality">
-          <span class="quality-label">Calidad de la grabación:</span>
-          <div class="quality-options">
-            <button
-              type="button"
-              class="pill"
-              :class="{ active: quality === '1080p' }"
-              @click="quality = '1080p'"
-            >
-              1080p (rápido)
-            </button>
-            <button
-              type="button"
-              class="pill"
-              :class="{ active: quality === '4k' }"
-              @click="quality = '4k'"
-            >
-              4K
-            </button>
-          </div>
-          <p v-if="quality === '4k'" class="hint">
-            El archivo quedará más pesado y la edición después será más lenta.
-          </p>
+        <div class="quality-options">
+          <button type="button" class="pill" :class="{ active: quality === '1080p' }" @click="quality = '1080p'">
+            1080p
+          </button>
+          <button type="button" class="pill" :class="{ active: quality === '4k' }" @click="quality = '4k'">
+            4K
+          </button>
         </div>
         <label class="checkbox">
           <input v-model="fullscreenEnabled" type="checkbox" />
-          Pantalla completa al grabar (resultado más limpio en Safari; para detenerla, tecla Esc)
+          Pantalla completa
         </label>
         <div class="actions">
           <button type="button" class="pill accent" @click="onStartRecording">Grabar</button>
@@ -348,15 +316,6 @@ function onStartRecording() {
 }
 .trim-sep {
   color: var(--text-faint);
-}
-.quality {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.quality-label {
-  color: var(--text-dim);
-  font-size: 0.8rem;
 }
 .quality-options {
   display: flex;
