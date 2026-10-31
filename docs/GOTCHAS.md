@@ -252,6 +252,21 @@ habilitada por quien lo subió; la importación toma el tiempo real del video.
   "4K" en `YoutubeImportPanel.vue` (por defecto 1080p), que pasa la calidad elegida a
   `startRecording(useFullscreen, quality)`; con `quality==='4k'` las restricciones de video se
   omiten (`video: true`, sin tope), igual que el comportamiento original.
+
+- **Grabar solo un tramo del video de YouTube (mismo día, pedido explícito del usuario tras lo
+  de arriba — "¿puede empezar la grabación en el minuto 8 y pararse en el 17:30?"):** dos campos
+  opcionales "Desde"/"Hasta" (texto libre, acepta `8:00`, `1:17:30` o segundos sueltos —
+  `parseTimeInput` en `YoutubeImportPanel.vue`) antes de "Grabar". `startRecording` ahora recibe
+  `(useFullscreen, quality, startTime, endTime)`: si `startTime>0` hace `player.seekTo(startTime,
+  true)` ANTES de `playVideo()` (así no se grava nada de lo anterior), y el mismo timer de
+  progreso que ya actualizaba `currentTime` cada 500ms ahora también revisa si llegó a `endTime`
+  para detener la grabación sola (`autoStopAt`, igual que si el video hubiese terminado ahí). El
+  tipo `YT.Player` no tenía declarado `seekTo` en `iframeApi.d.ts` (propio del proyecto, la
+  IFrame API no trae tipos oficiales) — se agregó. **Límite esperado, no un bug:** sigue
+  grabando en tiempo real (no hay forma de "saltar" la grabación en sí, solo de no grabar antes
+  del inicio ni después del fin pedido), así que un tramo de 9.5 min sigue tomando ~9.5 min en
+  grabarse — pero ya no arrastra los ~8 min previos ni el resto después, que antes había que
+  cortar después con "Cortar" (recodificando un archivo mucho más pesado).
 - **YouTube downloaders de terceros (ytdown.to, etc.) — no replicar gratis:** corren detrás de
   protección anti-bots seria (Cloudflare), señal de que mantienen infraestructura de servidor
   cara de proteger — confirma lo ya descartado antes (yt-dlp+servidor gratis no sirve, YouTube

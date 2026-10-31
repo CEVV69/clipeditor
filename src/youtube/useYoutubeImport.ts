@@ -39,6 +39,10 @@ export function useYoutubeImport() {
   let progressTimer: number | null = null
   let containerEl: HTMLElement | null = null
   let onPlayingOnce: (() => void) | null = null
+  // Si se pidió un tramo (no todo el video), tope en segundos donde la
+  // grabación se detiene sola — null cuando se grabó desde "Grabar" sin
+  // elegir tramo, o ya se usó y hay que dejar de chequearlo.
+  let autoStopAt: number | null = null
 
   function stopProgressTimer() {
     if (progressTimer !== null) {
@@ -145,9 +149,15 @@ export function useYoutubeImport() {
     })
   }
 
-  async function startRecording(useFullscreen: boolean, quality: RecordingQuality = '1080p') {
+  async function startRecording(
+    useFullscreen: boolean,
+    quality: RecordingQuality = '1080p',
+    startTime = 0,
+    endTime: number | null = null,
+  ) {
     if (!player) return
     errorMessage.value = ''
+    autoStopAt = endTime !== null && endTime > startTime ? endTime : null
 
     // Sin tope, graba al tamaño físico real de la pantalla (2x-3x más
     // píxeles que 1080p en una pantalla Retina) y sin límite de cuadros por
@@ -218,6 +228,12 @@ export function useYoutubeImport() {
     })
     document.addEventListener('fullscreenchange', onFullscreenChange)
 
+    // Si se eligió un tramo, saltar a su inicio ANTES de reproducir — así
+    // no se grava ni un segundo de lo que queda antes del minuto pedido.
+    if (startTime > 0) {
+      player.seekTo(startTime, true)
+    }
+
     // Arranca la reproducción y espera a que de verdad empiece antes de
     // grabar — si no, el primer instante muestra la miniatura/título
     // pausado de YouTube en vez del video.
@@ -228,7 +244,15 @@ export function useYoutubeImport() {
     state.value = 'recording'
 
     progressTimer = window.setInterval(() => {
-      currentTime.value = player?.getCurrentTime() ?? 0
+      const t = player?.getCurrentTime() ?? 0
+      currentTime.value = t
+      // Grabación con tramo: se detiene sola al llegar al fin pedido, igual
+      // que si el video hubiese terminado ahí.
+      if (autoStopAt !== null && t >= autoStopAt) {
+        autoStopAt = null
+        player?.pauseVideo()
+        finishRecording()
+      }
     }, 500)
   }
 
@@ -256,6 +280,7 @@ export function useYoutubeImport() {
     recorder = null
     containerEl = null
     onPlayingOnce = null
+    autoStopAt = null
     state.value = 'idle'
     errorMessage.value = ''
     title.value = ''

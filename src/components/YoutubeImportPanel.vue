@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { extractYouTubeId } from '../youtube/videoId'
 import { useYoutubeImport } from '../youtube/useYoutubeImport'
 
@@ -17,6 +17,9 @@ const playerWrapper = ref<HTMLElement | null>(null)
 const playerMount = ref<HTMLElement | null>(null)
 const fullscreenEnabled = ref(false)
 const quality = ref<'1080p' | '4k'>('1080p')
+const trimStartInput = ref('')
+const trimEndInput = ref('')
+const trimError = ref('')
 
 const LONG_VIDEO_SECONDS = 30 * 60
 
@@ -66,6 +69,64 @@ function formatTime(seconds: number): string {
   const s = total % 60
   return `${m}:${String(s).padStart(2, '0')}`
 }
+
+// Acepta "8:00", "1:17:30" o solo segundos ("480") — lo que se le ocurra
+// escribir a mano. Vacío = "no se eligió", null = texto inválido.
+function parseTimeInput(raw: string): number | null {
+  const text = raw.trim()
+  if (!text) return null
+  if (/^\d+$/.test(text)) return Number(text)
+  const parts = text.split(':').map((p) => p.trim())
+  if (parts.length < 2 || parts.length > 3 || parts.some((p) => !/^\d+$/.test(p))) return null
+  const nums = parts.map(Number)
+  let seconds = 0
+  for (const n of nums) seconds = seconds * 60 + n
+  return seconds
+}
+
+// Para el aviso de "video largo": si ya escribió un tramo válido, importa
+// cuánto dura ESE tramo, no el video completo.
+const estimatedRecordingSeconds = computed(() => {
+  const start = parseTimeInput(trimStartInput.value) ?? 0
+  const end = parseTimeInput(trimEndInput.value) ?? duration.value
+  return Math.max(0, end - start)
+})
+
+function onStartRecording() {
+  trimError.value = ''
+
+  const rawStart = trimStartInput.value.trim()
+  const rawEnd = trimEndInput.value.trim()
+  let startTime = 0
+  let endTime: number | null = null
+
+  if (rawStart) {
+    const parsed = parseTimeInput(rawStart)
+    if (parsed === null) {
+      trimError.value = 'El inicio del tramo no es un tiempo válido (ej: 8:00).'
+      return
+    }
+    startTime = parsed
+  }
+  if (rawEnd) {
+    const parsed = parseTimeInput(rawEnd)
+    if (parsed === null) {
+      trimError.value = 'El fin del tramo no es un tiempo válido (ej: 17:30).'
+      return
+    }
+    endTime = parsed
+  }
+  if (endTime !== null && endTime <= startTime) {
+    trimError.value = 'El fin del tramo debe ser mayor que el inicio.'
+    return
+  }
+  if (startTime >= duration.value || (endTime !== null && endTime > duration.value)) {
+    trimError.value = `El video dura ${formatTime(duration.value)} — revisa esos tiempos.`
+    return
+  }
+
+  startRecording(fullscreenEnabled.value, quality.value, startTime, endTime)
+}
 </script>
 
 <template>
@@ -106,13 +167,33 @@ function formatTime(seconds: number): string {
       <div v-if="state === 'ready'" class="ready">
         <strong v-if="title" class="title">{{ title }}</strong>
         <span class="duration">Dura {{ formatTime(duration) }}</span>
-        <p v-if="duration > LONG_VIDEO_SECONDS" class="hint">
-          Es un video largo — importarlo toma el mismo tiempo que dura, porque se graba mientras se reproduce.
+        <p v-if="estimatedRecordingSeconds > LONG_VIDEO_SECONDS" class="hint">
+          Es un tramo largo — importarlo toma el mismo tiempo que dura, porque se graba mientras se reproduce.
         </p>
         <p class="hint">
           Al grabar, el navegador te pide elegir qué compartir — elige esta pestaña o ventana. El
           resultado incluye el resto de esta página alrededor del video.
         </p>
+        <div class="trim-range">
+          <span class="quality-label">Grabar solo un tramo (opcional):</span>
+          <div class="trim-inputs">
+            <input
+              v-model="trimStartInput"
+              type="text"
+              inputmode="numeric"
+              placeholder="Desde (ej: 8:00)"
+            />
+            <span class="trim-sep">→</span>
+            <input
+              v-model="trimEndInput"
+              type="text"
+              inputmode="numeric"
+              placeholder="Hasta (ej: 17:30)"
+            />
+          </div>
+          <p class="hint">Déjalo vacío para grabar el video completo.</p>
+          <p v-if="trimError" class="error">{{ trimError }}</p>
+        </div>
         <div class="quality">
           <span class="quality-label">Calidad de la grabación:</span>
           <div class="quality-options">
@@ -142,7 +223,7 @@ function formatTime(seconds: number): string {
           Pantalla completa al grabar (resultado más limpio en Safari; para detenerla, tecla Esc)
         </label>
         <div class="actions">
-          <button type="button" class="pill accent" @click="startRecording(fullscreenEnabled, quality)">Grabar</button>
+          <button type="button" class="pill accent" @click="onStartRecording">Grabar</button>
           <button type="button" class="pill ghost" @click="onReset">Cancelar</button>
         </div>
       </div>
@@ -241,6 +322,32 @@ function formatTime(seconds: number): string {
 .ready .duration {
   color: var(--text-dim);
   font-size: 0.8rem;
+}
+.trim-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trim-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trim-inputs input {
+  flex: 1;
+  min-width: 0;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 9px 10px;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.trim-inputs input::placeholder {
+  color: var(--text-faint);
+}
+.trim-sep {
+  color: var(--text-faint);
 }
 .quality {
   display: flex;

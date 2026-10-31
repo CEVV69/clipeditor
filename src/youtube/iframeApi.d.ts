@@ -45,6 +45,7 @@ declare global {
       constructor(element: HTMLElement | string, options: PlayerOptions)
       playVideo(): void
       pauseVideo(): void
+      seekTo(seconds: number, allowSeekAhead: boolean): void
       getPlayerState(): PlayerState
       getDuration(): number
       getCurrentTime(): number
