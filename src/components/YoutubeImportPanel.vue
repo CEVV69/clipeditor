@@ -16,6 +16,7 @@ const inputError = ref('')
 const playerWrapper = ref<HTMLElement | null>(null)
 const playerMount = ref<HTMLElement | null>(null)
 const fullscreenEnabled = ref(false)
+const quality = ref<'1080p' | '4k'>('1080p')
 
 const LONG_VIDEO_SECONDS = 30 * 60
 
@@ -112,12 +113,36 @@ function formatTime(seconds: number): string {
           Al grabar, el navegador te pide elegir qué compartir — elige esta pestaña o ventana. El
           resultado incluye el resto de esta página alrededor del video.
         </p>
+        <div class="quality">
+          <span class="quality-label">Calidad de la grabación:</span>
+          <div class="quality-options">
+            <button
+              type="button"
+              class="pill"
+              :class="{ active: quality === '1080p' }"
+              @click="quality = '1080p'"
+            >
+              1080p (rápido)
+            </button>
+            <button
+              type="button"
+              class="pill"
+              :class="{ active: quality === '4k' }"
+              @click="quality = '4k'"
+            >
+              4K
+            </button>
+          </div>
+          <p v-if="quality === '4k'" class="hint">
+            El archivo quedará más pesado y la edición después será más lenta.
+          </p>
+        </div>
         <label class="checkbox">
           <input v-model="fullscreenEnabled" type="checkbox" />
           Pantalla completa al grabar (resultado más limpio en Safari; para detenerla, tecla Esc)
         </label>
         <div class="actions">
-          <button type="button" class="pill accent" @click="startRecording(fullscreenEnabled)">Grabar</button>
+          <button type="button" class="pill accent" @click="startRecording(fullscreenEnabled, quality)">Grabar</button>
           <button type="button" class="pill ghost" @click="onReset">Cancelar</button>
         </div>
       </div>
@@ -216,6 +241,23 @@ function formatTime(seconds: number): string {
 .ready .duration {
   color: var(--text-dim);
   font-size: 0.8rem;
+}
+.quality {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.quality-label {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+.quality-options {
+  display: flex;
+  gap: 8px;
+}
+.quality-options .pill.active {
+  background: var(--accent);
+  color: var(--text);
 }
 .checkbox {
   display: flex;

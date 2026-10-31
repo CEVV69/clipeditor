@@ -247,6 +247,11 @@ habilitada por quien lo subió; la importación toma el tiempo real del video.
   ediciones ya livianas (1080p o menos), la siguiente palanca sigue siendo el core multi-hilo
   `@ffmpeg/core-mt` (ver nota arriba) — no implementado por el riesgo de chocar con el SW de la
   PWA, requiere evaluarse con cuidado y probarse en producción (el SW no registra en el panel).
+  **Primer tope puesto como fijo sin opción (mismo día) — el usuario sí quería poder elegir 4K a
+  propósito, sabiendo que sale más lento de editar:** se agregó un selector "1080p (rápido)" /
+  "4K" en `YoutubeImportPanel.vue` (por defecto 1080p), que pasa la calidad elegida a
+  `startRecording(useFullscreen, quality)`; con `quality==='4k'` las restricciones de video se
+  omiten (`video: true`, sin tope), igual que el comportamiento original.
 - **YouTube downloaders de terceros (ytdown.to, etc.) — no replicar gratis:** corren detrás de
   protección anti-bots seria (Cloudflare), señal de que mantienen infraestructura de servidor
   cara de proteger — confirma lo ya descartado antes (yt-dlp+servidor gratis no sirve, YouTube

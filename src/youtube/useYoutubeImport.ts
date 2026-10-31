@@ -2,6 +2,7 @@ import { ref, shallowRef } from 'vue'
 import { loadYouTubeIframeApi } from './loadIframeApi'
 
 export type ImportState = 'idle' | 'loading' | 'ready' | 'recording' | 'done' | 'error'
+export type RecordingQuality = '1080p' | '4k'
 
 const ERROR_MESSAGES: Record<number, string> = {
   2: 'Ese link no parece válido.',
@@ -144,19 +145,25 @@ export function useYoutubeImport() {
     })
   }
 
-  async function startRecording(useFullscreen: boolean) {
+  async function startRecording(useFullscreen: boolean, quality: RecordingQuality = '1080p') {
     if (!player) return
     errorMessage.value = ''
+
+    // Sin tope, graba al tamaño físico real de la pantalla (2x-3x más
+    // píxeles que 1080p en una pantalla Retina) y sin límite de cuadros por
+    // segundo — luego cualquier edición recodifica ese archivo con un solo
+    // hilo (ver GOTCHAS.md) y se vuelve brutalmente lento. Por eso 1080p es
+    // la opción por defecto; "4k" queda disponible para quien lo pida a
+    // propósito, sabiendo que la edición después será más lenta.
+    const videoConstraints =
+      quality === '4k'
+        ? true
+        : { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } }
 
     let capturedStream: MediaStream
     try {
       capturedStream = await navigator.mediaDevices.getDisplayMedia({
-        // Sin este tope, graba al tamaño físico real de la pantalla (2x-3x
-        // más píxeles que 1080p en una pantalla Retina) y sin límite de
-        // cuadros por segundo — luego cualquier edición recodifica ese
-        // archivo con un solo hilo (ver GOTCHAS.md) y se vuelve brutalmente
-        // lento. 1080p/30fps alcanza de sobra para un video de YouTube.
-        video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } },
+        video: videoConstraints,
         audio: true,
         ...({ preferCurrentTab: true, selfBrowserSurface: 'include' } as Record<string, unknown>),
       } as DisplayMediaStreamOptions)
