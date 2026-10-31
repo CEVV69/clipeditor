@@ -234,6 +234,19 @@ habilitada por quien lo subió; la importación toma el tiempo real del video.
 - El panel de pruebas de Claude bloquea tanto `getDisplayMedia` como `requestFullscreen` en
   silencio (promesa que nunca resuelve) — esta función solo se puede verificar de verdad en el
   navegador real del usuario, nunca en el panel.
+- **Grabación sin tope de resolución/fps → export después brutalmente lento (reportado
+  2026-10-31, un video de 18 min grabado y recortado a ~9.5 min: 1 hora para solo 18% de
+  avance):** `getDisplayMedia({video: true, ...})` sin restricciones graba al tamaño físico real
+  de la pantalla/pestaña compartida (en Retina, 2x-3x más píxeles que 1080p) y sin límite de
+  cuadros por segundo. Como toda edición recodifica siempre con un solo hilo (ver arriba), un
+  archivo de origen así de pesado multiplica el tiempo de codificación directamente por la
+  cantidad de píxeles — no es el recorte el lento, es el tamaño real del archivo grabado.
+  Arreglo: `video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } }` en
+  `getDisplayMedia` (`useYoutubeImport.ts`) — 1080p/30fps de sobra para YouTube, y arregla todas
+  las importaciones futuras, no solo la reportada. Si el usuario pide aún más velocidad en
+  ediciones ya livianas (1080p o menos), la siguiente palanca sigue siendo el core multi-hilo
+  `@ffmpeg/core-mt` (ver nota arriba) — no implementado por el riesgo de chocar con el SW de la
+  PWA, requiere evaluarse con cuidado y probarse en producción (el SW no registra en el panel).
 - **YouTube downloaders de terceros (ytdown.to, etc.) — no replicar gratis:** corren detrás de
   protección anti-bots seria (Cloudflare), señal de que mantienen infraestructura de servidor
   cara de proteger — confirma lo ya descartado antes (yt-dlp+servidor gratis no sirve, YouTube

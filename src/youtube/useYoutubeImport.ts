@@ -151,7 +151,12 @@ export function useYoutubeImport() {
     let capturedStream: MediaStream
     try {
       capturedStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        // Sin este tope, graba al tamaño físico real de la pantalla (2x-3x
+        // más píxeles que 1080p en una pantalla Retina) y sin límite de
+        // cuadros por segundo — luego cualquier edición recodifica ese
+        // archivo con un solo hilo (ver GOTCHAS.md) y se vuelve brutalmente
+        // lento. 1080p/30fps alcanza de sobra para un video de YouTube.
+        video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } },
         audio: true,
         ...({ preferCurrentTab: true, selfBrowserSurface: 'include' } as Record<string, unknown>),
       } as DisplayMediaStreamOptions)
