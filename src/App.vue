@@ -20,7 +20,7 @@ const VIDEO_TOOLS: ToolDef[] = [
   { id: 'logo', label: 'Quitar logo', icon: 'logo' },
   { id: 'aspect', label: 'Proporción', icon: 'crop' },
   { id: 'rotate', label: 'Rotar/voltear', icon: 'rotate' },
-  { id: 'frame', label: 'Capturar fotograma', icon: 'frame' },
+  { id: 'frame', label: 'Fotograma', icon: 'frame' },
   { id: 'audio', label: 'Extraer audio', icon: 'audio' },
 ]
 // Cortar y Volumen/velocidad son conceptos de tiempo: no aplican a una
