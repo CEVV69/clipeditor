@@ -320,6 +320,15 @@ export function buildFrameExtractArgs(inputName: string, outputName: string, tim
   return ['-ss', timestamp.toFixed(3), '-i', inputName, '-frames:v', '1', outputName]
 }
 
+/**
+ * Solo audio, sin video ("-vn"), a mp3 — el formato más compatible para
+ * reusar después en cualquier otra app o editor. "-q:a 2" es calidad VBR
+ * alta (casi transparente) sin inflar el tamaño como un bitrate fijo alto.
+ */
+export function buildAudioExtractArgs(inputName: string, outputName: string): string[] {
+  return ['-i', inputName, '-vn', '-c:a', 'libmp3lame', '-q:a', '2', outputName]
+}
+
 export interface MergeClipInput {
   inputName: string
   trimStart: number

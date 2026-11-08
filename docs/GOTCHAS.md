@@ -3,6 +3,29 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## Extraer audio (2026-11-08)
+
+Nueva herramienta de video (no aplica a imagen): "-vn -c:a libmp3lame -q:a 2" (sin filtro de
+video, mp3 con VBR alta calidad) — `buildAudioExtractArgs` en `commandBuilder.ts`,
+`runExtractAudio` en `useFfmpeg.ts`. Acción aparte de "Ejecutar edición", igual patrón que
+"Capturar fotograma" (`AudioPanel.vue`, un solo botón sin ajustes — nada que elegir, coherente
+con el pedido de "poco texto" del usuario). Si el archivo no tiene pista de audio, `exec` sale
+con código≠0 (no hay nada que `-vn` deje escribir) — mensaje propio en vez del genérico:
+"Este archivo no tiene pista de audio, o no se pudo extraer."
+
+**Probado de punta a punta en el panel de pruebas (caso real, no solo sintético directo):**
+un video de prueba generado con canvas+oscillator+MediaRecorder (combinando
+`canvas.captureStream()` y `AudioContext.createMediaStreamDestination()` en un mismo
+`MediaStream`) SÍ produjo un webm válido y reproducible esta vez — a diferencia del gotcha de
+"Unir videos" (2026-10-30) que documentaba ese mismo combo como corrupto. No se investigó por
+qué cambió (¿versión de Chrome del panel, duración más corta, codecs explícitos `vp8,opus`?) —
+si se repite el problema viejo en otra prueba, no asumir que esta técnica siempre funciona,
+probar primero con un clip bien corto (~1.5s) antes de descartarla. Con ese archivo: extracción
+dio `audio/mpeg`, duración correcta, nombre de descarga `audio.mp3` — confirmado via `fetch()`
+del blob resultante, no solo visualmente. También se probó el camino de error con un video sin
+audio (solo `canvas.captureStream()`, sin pista de audio) — mensaje propio mostrado
+correctamente. Aun así, falta la confirmación del usuario con un archivo real suyo.
+
 ## Unir videos (2026-10-30)
 
 Pantalla aparte (`MergeView.vue`), accesible desde una portada con dos tarjetas ("Editar un

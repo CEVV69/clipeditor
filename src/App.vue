@@ -10,6 +10,7 @@ import LogoPanel from './components/LogoPanel.vue'
 import AspectRatioPanel from './components/AspectRatioPanel.vue'
 import OrientationPanel from './components/OrientationPanel.vue'
 import FramePanel from './components/FramePanel.vue'
+import AudioPanel from './components/AudioPanel.vue'
 import { useFfmpeg } from './ffmpeg/useFfmpeg'
 import type { CropRect, LogoRegion } from './ffmpeg/commandBuilder'
 
@@ -20,11 +21,12 @@ const VIDEO_TOOLS: ToolDef[] = [
   { id: 'aspect', label: 'Proporción', icon: 'crop' },
   { id: 'rotate', label: 'Rotar/voltear', icon: 'rotate' },
   { id: 'frame', label: 'Capturar fotograma', icon: 'frame' },
+  { id: 'audio', label: 'Extraer audio', icon: 'audio' },
 ]
 // Cortar y Volumen/velocidad son conceptos de tiempo: no aplican a una
 // imagen fija, así que su menú solo trae Quitar logo, Proporción y
-// Rotar/voltear. Capturar fotograma tampoco aplica: una imagen ya es un
-// solo fotograma.
+// Rotar/voltear. Capturar fotograma y Extraer audio tampoco aplican: una
+// imagen ya es un solo fotograma y no tiene pista de audio.
 const IMAGE_TOOLS: ToolDef[] = [
   { id: 'logo', label: 'Quitar logo', icon: 'logo' },
   { id: 'aspect', label: 'Proporción', icon: 'crop' },
@@ -71,11 +73,14 @@ const capturingFrame = ref(false)
 const frameProgress = ref(0)
 const frameErrorMessage = ref('')
 
+const extractingAudio = ref(false)
+const audioErrorMessage = ref('')
+
 const resultUrl = ref('')
-const resultMediaType = ref<'video' | 'image'>('video')
+const resultMediaType = ref<'video' | 'image' | 'audio'>('video')
 const errorMessage = ref('')
 
-const { loading, progress, runEdit, runImageEdit, runExtractFrame } = useFfmpeg()
+const { loading, progress, runEdit, runImageEdit, runExtractFrame, runExtractAudio } = useFfmpeg()
 const exporting = ref(false)
 
 const loadingFile = ref(false)
@@ -150,6 +155,8 @@ async function resetForNewFile(selected: File) {
   captureTime.value = 0
   capturingFrame.value = false
   frameErrorMessage.value = ''
+  extractingAudio.value = false
+  audioErrorMessage.value = ''
   resultUrl.value = ''
   errorMessage.value = ''
   activeTool.value = mediaType.value === 'image' ? 'logo' : 'trim'
@@ -246,6 +253,7 @@ function onToolChange(tool: string) {
   }
   errorMessage.value = ''
   frameErrorMessage.value = ''
+  audioErrorMessage.value = ''
 }
 
 async function onExport() {
@@ -309,6 +317,25 @@ async function onCaptureFrame() {
   }
 }
 
+// Igual que Capturar fotograma: acción aparte de "Ejecutar edición", saca
+// el audio del archivo original tal cual está, sin aplicar recorte/logo/etc.
+async function onExtractAudio() {
+  if (!file.value) return
+  audioErrorMessage.value = ''
+  extractingAudio.value = true
+  try {
+    const blob = await runExtractAudio(file.value)
+    if (resultUrl.value) URL.revokeObjectURL(resultUrl.value)
+    resultUrl.value = URL.createObjectURL(blob)
+    resultMediaType.value = 'audio'
+  } catch (err) {
+    console.error('audio extraction failed', err)
+    audioErrorMessage.value = err instanceof Error ? err.message : 'No se pudo extraer el audio. Intenta de nuevo.'
+  } finally {
+    extractingAudio.value = false
+  }
+}
+
 const exportLabel = computed(() => {
   if (loading.value) return 'Preparando…'
   if (exporting.value) return `Procesando ${Math.round(progress.value * 100)}%`
@@ -317,6 +344,7 @@ const exportLabel = computed(() => {
 const exportDisabled = computed(() => exporting.value || loading.value)
 
 const resultFileName = computed(() => {
+  if (resultMediaType.value === 'audio') return 'audio.mp3'
   if (resultMediaType.value !== 'image') return 'video-editado.mp4'
   if (activeTool.value === 'frame' || mediaType.value === 'video') return 'fotograma.png'
   const name = file.value?.name ?? ''
@@ -432,7 +460,7 @@ const resultFileName = computed(() => {
       />
 
       <FramePanel
-        v-else
+        v-else-if="activeTool === 'frame'"
         :duration="duration"
         v-model:capture-time="captureTime"
         :capturing="capturingFrame"
@@ -442,14 +470,29 @@ const resultFileName = computed(() => {
         @capture="onCaptureFrame"
       />
 
-      <button v-if="activeTool !== 'frame'" class="export" type="button" :disabled="exportDisabled" @click="onExport">
+      <AudioPanel
+        v-else
+        :extracting="extractingAudio"
+        :progress="progress"
+        :error-message="audioErrorMessage"
+        @extract="onExtractAudio"
+      />
+
+      <button
+        v-if="activeTool !== 'frame' && activeTool !== 'audio'"
+        class="export"
+        type="button"
+        :disabled="exportDisabled"
+        @click="onExport"
+      >
         {{ exportLabel }}
       </button>
 
-      <p v-if="activeTool !== 'frame' && errorMessage" class="error">{{ errorMessage }}</p>
+      <p v-if="activeTool !== 'frame' && activeTool !== 'audio' && errorMessage" class="error">{{ errorMessage }}</p>
 
       <div v-if="resultUrl" class="result">
         <video v-if="resultMediaType === 'video'" :src="resultUrl" controls />
+        <audio v-else-if="resultMediaType === 'audio'" :src="resultUrl" controls />
         <img v-else :src="resultUrl" alt="" />
         <a class="download" :href="resultUrl" :download="resultFileName">Descargar</a>
       </div>
@@ -594,6 +637,9 @@ header h1 {
   max-height: 60vh;
   object-fit: contain;
   border-radius: 16px;
+}
+.result audio {
+  width: 100%;
 }
 .result .download {
   display: inline-flex;

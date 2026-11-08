@@ -5,6 +5,7 @@ import {
   buildFfmpegArgs,
   buildImageFfmpegArgs,
   buildFrameExtractArgs,
+  buildAudioExtractArgs,
   buildMergeArgs,
   type EditSettings,
   type ImageEditSettings,
@@ -171,6 +172,37 @@ export function useFfmpeg() {
     return new Blob([bytes], { type: 'image/png' })
   }
 
+  async function runExtractAudio(file: File): Promise<Blob> {
+    await load()
+
+    const extension = file.name.includes('.') ? file.name.split('.').pop() : 'mp4'
+    const inputName = `input.${extension}`
+    const outputName = 'audio.mp3'
+
+    progress.value = 0
+    await ffmpeg.writeFile(inputName, await fetchFile(file))
+
+    const args = buildAudioExtractArgs(inputName, outputName)
+    const exitCode = await ffmpeg.exec(args)
+
+    if (exitCode !== 0) {
+      await ffmpeg.deleteFile(inputName).catch(() => {})
+      await ffmpeg.deleteFile(outputName).catch(() => {})
+      // La causa más común de que esto falle es que el video no tenga
+      // ninguna pista de audio (grabaciones de pantalla mudas, etc.) — "-vn"
+      // sin audio que sacar no tiene nada que escribir y ffmpeg sale con
+      // error en vez de generar un mp3 vacío.
+      throw new Error('Este archivo no tiene pista de audio, o no se pudo extraer.')
+    }
+
+    const data = await ffmpeg.readFile(outputName)
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+
+    const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data
+    return new Blob([bytes], { type: 'audio/mpeg' })
+  }
+
   async function runMerge(
     clips: { file: File; trimStart: number; trimEnd: number; hasAudio: boolean }[],
     targetWidth: number,
@@ -226,5 +258,5 @@ export function useFfmpeg() {
     return new Blob([bytes], { type: 'video/mp4' })
   }
 
-  return { loaded, loading, progress, logLines, load, runEdit, runImageEdit, runExtractFrame, runMerge }
+  return { loaded, loading, progress, logLines, load, runEdit, runImageEdit, runExtractFrame, runExtractAudio, runMerge }
 }
