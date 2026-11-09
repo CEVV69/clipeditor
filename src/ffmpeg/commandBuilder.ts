@@ -338,17 +338,23 @@ export interface MergeClipInput {
 }
 
 /** Biblioteca de transiciones ofrecida en la UI — "none" es el corte directo de siempre. */
-export type TransitionType = 'none' | 'fade' | 'dissolve' | 'slide' | 'circle'
+export type TransitionType = 'none' | 'fade' | 'dissolve' | 'slide' | 'circle' | 'wipe' | 'smooth'
 
 // Nombre real del filtro "xfade" de ffmpeg para cada opción de la UI.
 // "fade" (xfade) es un cross-fade liso (un clip se desvanece sobre el otro,
 // sin pasar por negro) — eso es lo que el usuario pidió como "Mezcla".
 // "fadeblack" sí pasa por negro un instante — eso es "Fundido".
+// "wipeleft" (pedido 2026-11-09): una línea vertical dura que recorre la
+// pantalla revelando el video siguiente detrás, sin mezclar — distinto de
+// "slideleft" (todo el fotograma se desplaza entero) y de "smoothleft"
+// (igual que wipe pero con el borde difuminado en vez de una línea dura).
 const XFADE_NAME: Record<Exclude<TransitionType, 'none'>, string> = {
   fade: 'fadeblack',
   dissolve: 'fade',
   slide: 'slideleft',
   circle: 'circleopen',
+  wipe: 'wipeleft',
+  smooth: 'smoothleft',
 }
 
 const TRANSITION_DURATION = 0.6 // segundos — fijo, no configurable (mantener la UI simple)

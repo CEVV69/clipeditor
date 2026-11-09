@@ -6,11 +6,18 @@ tiene el resumen; el detalle completo vive acá.
 ## Transiciones en "Unir videos" (2026-11-09)
 
 Una sola transición elegida para TODAS las uniones (decisión explícita del usuario, no por
-clip — más simple de usar y de construir), 5 opciones en `MergeView.vue`: Ninguna (comportamiento
-de siempre, `concat`), Fundido, Mezcla, Deslizar, Círculo. Mapeo a los nombres reales del filtro
-`xfade` de ffmpeg en `commandBuilder.ts` (`XFADE_NAME`): Fundido→`fadeblack` (pasa por negro),
-Mezcla→`fade` (cross-fade liso, sin pasar por negro — ojo que el nombre del filtro "fade" es la
-Mezcla de la UI, no el Fundido), Deslizar→`slideleft`, Círculo→`circleopen`.
+clip — más simple de usar y de construir), 7 opciones en `MergeView.vue`: Ninguna (comportamiento
+de siempre, `concat`), Fundido, Mezcla, Deslizar, Círculo, Barrido, Barrido suave (las últimas
+dos agregadas 2026-11-09 a pedido del usuario tras probar las primeras 5). Mapeo a los nombres
+reales del filtro `xfade` de ffmpeg en `commandBuilder.ts` (`XFADE_NAME`): Fundido→`fadeblack`
+(pasa por negro), Mezcla→`fade` (cross-fade liso, sin pasar por negro — ojo que el nombre del
+filtro "fade" es la Mezcla de la UI, no el Fundido), Deslizar→`slideleft`, Círculo→`circleopen`,
+Barrido→`wipeleft` (línea vertical dura que recorre la pantalla revelando el siguiente clip
+detrás, sin mezclar — pedido textual: "línea vertical que... se desplaza... hasta desaparecer y
+quedar el video siguiente"), Barrido suave→`smoothleft` (igual idea pero con degradado en vez de
+línea dura — pedido textual: "fundido de derecha a izquierda"). Ambas confirmadas visualmente en
+el panel de pruebas: Barrido mostró una línea vertical dura dividiendo los dos colores de
+prueba, Barrido suave mostró un degradado horizontal continuo entre ambos.
 
 - **Con transición, el video usa `xfade` en cadena en vez de `concat`** (uno por cada par de
   clips consecutivos, encadenados: `[v0][v1]xfade=...[vx1]`, `[vx1][v2]xfade=...[vx2]`, etc.) y
@@ -30,10 +37,10 @@ Mezcla de la UI, no el Fundido), Deslizar→`slideleft`, Círculo→`circleopen`
   funcionó para "Extraer audio") y transición "Mezcla": exportó sin error, duración final
   correcta (2.9+2.9-0.6≈5.3s) y, al buscar el punto medio del video resultante, el fotograma
   mostraba un tono mezclado entre el rojo y el azul de origen — confirma que el cross-dissolve
-  real está ocurriendo, no solo que el comando no falló. No se probaron las otras 4 opciones
-  individualmente (mismo código `xfade` genérico, solo cambia el nombre del tipo) ni con más de
-  2 clips — si se reporta un problema con 3+ clips o con Fundido/Deslizar/Círculo específicamente,
-  revisar el encadenado de offsets primero.
+  real está ocurriendo, no solo que el comando no falló. No se probaron Fundido/Deslizar/Círculo
+  individualmente (mismo código `xfade` genérico, solo cambia el nombre del tipo) ni ninguna con
+  más de 2 clips — si se reporta un problema con 3+ clips o con esas tres específicamente, revisar
+  el encadenado de offsets primero.
 
 ## Extraer audio (2026-11-08)
 

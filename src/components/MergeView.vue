@@ -31,6 +31,8 @@ const TRANSITIONS: { id: TransitionType; label: string }[] = [
   { id: 'dissolve', label: 'Mezcla' },
   { id: 'slide', label: 'Deslizar' },
   { id: 'circle', label: 'Círculo' },
+  { id: 'wipe', label: 'Barrido' },
+  { id: 'smooth', label: 'Barrido suave' },
 ]
 const transition = ref<TransitionType>('none')
 
