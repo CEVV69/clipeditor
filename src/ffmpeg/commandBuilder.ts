@@ -2,6 +2,29 @@
 // igual a como lo hace el editor de 123apps: un solo paso de ffmpeg que
 // recorta, ajusta volumen/velocidad y tapa hasta 3 logos si se pidió.
 
+/**
+ * Tope de bitrate para la salida — sin esto, `libx264` con CRF por defecto
+ * puede disparar el peso (y el tiempo) del archivo final muchísimo más allá
+ * de lo razonable en video con mucho detalle/movimiento (una grabación de
+ * pantalla, texto en movimiento, etc.): confirmado con una prueba real
+ * (2026-11-09) donde "Unir videos" con 5 clips de prueba de 1080p/90s —
+ * fuente a 6 Mbps — terminó codificando a MÁS DE 16 Mbps, a 0.82x tiempo
+ * real (más lento que reproducirlo), con la salida creciendo sin freno.
+ * Estos topes (`-maxrate`/`-bufsize`, el doble como buffer VBV estándar)
+ * mantienen el archivo final en un tamaño/tiempo predecible sin tocar la
+ * calidad visible en el caso normal (solo entran en juego cuando el
+ * contenido es tan complejo que el CRF por sí solo se dispara).
+ */
+function bitrateCapArgs(width: number, height: number): string[] {
+  const area = width * height
+  let maxrateMbps: number
+  if (area <= 1280 * 720) maxrateMbps = 5
+  else if (area <= 1920 * 1080) maxrateMbps = 8
+  else if (area <= 2560 * 1440) maxrateMbps = 14
+  else maxrateMbps = 20
+  return ['-maxrate', `${maxrateMbps}M`, '-bufsize', `${maxrateMbps * 2}M`]
+}
+
 export interface LogoRegion {
   /** Coordenadas y tamaño en píxeles reales del video (no de la pantalla). */
   x: number
@@ -305,7 +328,7 @@ export function buildFfmpegArgs(inputName: string, outputName: string, settings:
   // usuario prefirió mantener esa precisión antes que acelerar con -c copy,
   // así que la única palanca de velocidad sin perder precisión es un ajuste
   // de compresión más veloz (el archivo final pesa algo más a cambio).
-  args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', outputName)
+  args.push('-c:v', 'libx264', '-preset', 'ultrafast', ...bitrateCapArgs(frameWidth, frameHeight), '-c:a', 'aac', outputName)
 
   return args
 }
@@ -360,6 +383,25 @@ const XFADE_NAME: Record<Exclude<TransitionType, 'none' | 'glitch'>, string> = {
 }
 
 const TRANSITION_DURATION = 0.6 // segundos — fijo, no configurable (mantener la UI simple)
+
+/**
+ * Duración real del video final de "Unir videos", en segundos — con
+ * transición, cada unión se superpone "td" segundos (ver más abajo), así
+ * que el resultado dura MENOS que la simple suma de los recortes. Se usa
+ * tanto para construir el filtro como para calcular un progreso real en la
+ * UI (el progreso que reporta ffmpeg.wasm en un filtergraph tan complejo no
+ * es confiable — ver GOTCHAS.md).
+ */
+export function computeMergeOutputDuration(
+  clips: { trimStart: number; trimEnd: number }[],
+  transition: TransitionType,
+): number {
+  const durations = clips.map((c) => c.trimEnd - c.trimStart)
+  const total = durations.reduce((a, b) => a + b, 0)
+  if (transition === 'none' || clips.length < 2) return total
+  const td = Math.min(TRANSITION_DURATION, Math.max(0.05, Math.min(...durations) * 0.4))
+  return total - td * (clips.length - 1)
+}
 
 /**
  * Transición "Glitch" (pedida 2026-11-09, afinada en 3 rondas con el
@@ -643,6 +685,6 @@ export function buildMergeArgs(
 
   args.push('-filter_complex', filter)
   args.push('-map', videoLabel, '-map', audioLabel)
-  args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', outputName)
+  args.push('-c:v', 'libx264', '-preset', 'ultrafast', ...bitrateCapArgs(w, h), '-c:a', 'aac', outputName)
   return args
 }

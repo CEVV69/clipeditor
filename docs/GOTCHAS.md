@@ -3,6 +3,49 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Unir videos" con clips largos/pesados — reportado como "no funciona" (2026-11-09)
+
+El usuario reportó que 5 clips de ~1.5 min cada uno (con transición y música) "no fue capaz de
+unirlos". Reproducido con 5 clips sintéticos pero REALISTAS (no los de prueba habituales de
+colores sólidos, que pesan casi nada): `testsrc2` 1920×1080/90s a 6 Mbps de origen (~67MB cada
+uno, generados con ffmpeg real en la Mac, servidos desde `public/__sizetest/` temporalmente y
+borrados después — nunca commitear archivos de prueba). Dos problemas reales encontrados, no uno:
+
+1. **El export NO estaba fallando — solo tardaba mucho más de lo que el progreso mostraba, y el
+   progreso llegaba a "100%" muchísimo antes de terminar de verdad.** Confirmado leyendo
+   `logLines` directo (el "time=" de ffmpeg seguía avanzando, con el archivo de salida
+   creciendo, minutos después de que `progress.value` ya marcaba 1.0) — el usuario casi seguro
+   vio "Procesando 100%" congelado por varios minutos y asumió que se quedó pegada. Causa:
+   `ffmpeg.wasm` no calcula bien el progreso en un filtergraph complejo (varios inputs +
+   transición) — no es algo que se pueda arreglar del lado del core. Arreglo: `runMerge` ahora
+   calcula su PROPIO progreso leyendo "time=HH:MM:SS.cc" de las últimas líneas del log contra
+   la duración real esperada del resultado (`computeMergeOutputDuration`, misma fórmula que ya
+   usaba `buildMergeArgs` para el offset de la transición, extraída a función aparte para no
+   duplicarla) — con una bandera `useNativeProgress` en `useFfmpeg.ts` para que el evento nativo
+   de ffmpeg no lo pise mientras tanto.
+2. **Sin tope de bitrate, el archivo de salida podía pesar e tardar mucho más de lo razonable
+   en contenido complejo.** Con el `-preset ultrafast` + CRF por defecto de siempre (sin
+   `-maxrate`/`-bufsize`), el clip de prueba (bastante más complejo visualmente que un video
+   casero típico, a propósito para forzar el peor caso) terminó codificando a MÁS DE 16 Mbps
+   —casi 3 veces el bitrate de origen (6 Mbps)— a 0.82x tiempo real (más lento que reproducirlo),
+   con la salida creciendo sin freno (pasó de 272MB a 339MB solo entre dos chequeos). Arreglo:
+   `bitrateCapArgs(w,h)` en `commandBuilder.ts` — tope de `-maxrate`/`-bufsize` según resolución
+   (5 Mbps hasta 720p, 8 Mbps hasta 1080p, 14 Mbps hasta 1440p, 20 Mbps más allá), aplicado al
+   export de "Unir videos" Y al de edición de un solo archivo (mismo `-preset ultrafast` sin
+   tope ahí también, mismo riesgo aunque menos probable con un solo clip).
+
+**Límite real de la app (no hay un tope de archivos/peso/duración puesto a propósito, es
+enteramente cuestión de tiempo de espera):** todo corre en un solo hilo dentro del navegador
+(ffmpeg.wasm sin soporte multi-hilo acá, ver nota de "core-mt" más abajo) — no hay memoria
+compartida entre pestañas ni límite de tamaño de archivo subido, pero procesar un video de
+calidad real puede tardar aproximadamente 1x-1.5x su propia duración, o bastante más con
+contenido muy complejo (mucho detalle/movimiento). Con 5 clips de 1.5 min (7.5 min en total),
+el tiempo de espera real puede ser de varios minutos — ahora al menos el progreso real se lo
+hace saber al usuario en vez de parecer colgada. No se volvió a probar el caso completo (5
+clips/1.5 min reales) tras el arreglo por tiempo — sí se confirmó con 2 clips de 25s (progreso
+fiel de punta a punta, 57.6s para codificar ~49s de resultado, bitrate de salida ~8.3 Mbps,
+dentro del tope nuevo). Falta confirmación del usuario con sus videos reales.
+
 ## Transición "Glitch" en "Unir videos" (2026-11-09)
 
 Pedida explícitamente por el usuario tras probar las primeras 7 transiciones (xfade) —

@@ -7,6 +7,7 @@ import {
   buildFrameExtractArgs,
   buildAudioExtractArgs,
   buildMergeArgs,
+  computeMergeOutputDuration,
   type EditSettings,
   type ImageEditSettings,
   type TransitionType,
@@ -34,12 +35,17 @@ export function useFfmpeg() {
   const loading = ref(false)
   const progress = ref(0)
   const logLines = ref<string[]>([])
+  // "Unir videos" calcula su propio progreso (ver runMerge) porque el que
+  // reporta ffmpeg.wasm no es confiable con un filtro tan complejo — esta
+  // bandera evita que el evento nativo lo pise mientras tanto.
+  let useNativeProgress = true
 
   ffmpeg.on('log', ({ message }) => {
     logLines.value.push(message)
     if (logLines.value.length > 200) logLines.value.shift()
   })
   ffmpeg.on('progress', ({ progress: p }) => {
+    if (!useNativeProgress) return
     progress.value = Math.min(1, Math.max(0, p))
   })
 
@@ -247,7 +253,35 @@ export function useFfmpeg() {
       await ffmpeg.deleteFile(outputName).catch(() => {})
     }
 
-    const exitCode = await ffmpeg.exec(args)
+    // El "progress" que reporta ffmpeg.wasm no es confiable en un filtro tan
+    // complejo como este (varios clips + transición) — llega a 100% mucho
+    // antes de que la codificación realmente termine, confirmado probando
+    // con 5 clips reales (2026-11-09): el progreso marcaba "listo" mientras
+    // ffmpeg seguía codificando varios minutos más, dejando al usuario
+    // pensando que la app se quedó pegada. En su lugar, se calcula el
+    // progreso real leyendo "time=HH:MM:SS.cc" de las últimas líneas del
+    // log de ffmpeg contra la duración real esperada del video final.
+    const expectedDuration = computeMergeOutputDuration(clips, transition)
+    const TIME_RE = /time=(\d+):(\d+):(\d+\.\d+)/
+    useNativeProgress = false
+    const progressTimer = window.setInterval(() => {
+      for (let i = logLines.value.length - 1; i >= Math.max(0, logLines.value.length - 5); i--) {
+        const match = TIME_RE.exec(logLines.value[i])
+        if (match) {
+          const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
+          if (expectedDuration > 0) progress.value = Math.min(0.99, seconds / expectedDuration)
+          break
+        }
+      }
+    }, 400)
+
+    let exitCode: number
+    try {
+      exitCode = await ffmpeg.exec(args)
+    } finally {
+      window.clearInterval(progressTimer)
+      useNativeProgress = true
+    }
     if (exitCode !== 0) {
       await cleanup()
       const lastLines = logLines.value.slice(-5).join(' | ')
@@ -256,6 +290,7 @@ export function useFfmpeg() {
 
     const data = await ffmpeg.readFile(outputName)
     await cleanup()
+    progress.value = 1
 
     const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data
     return new Blob([bytes], { type: 'video/mp4' })
