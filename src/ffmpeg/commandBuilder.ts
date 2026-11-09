@@ -338,9 +338,11 @@ export interface MergeClipInput {
 }
 
 /** Biblioteca de transiciones ofrecida en la UI — "none" es el corte directo de siempre. */
-export type TransitionType = 'none' | 'fade' | 'dissolve' | 'slide' | 'circle' | 'wipe' | 'smooth'
+export type TransitionType = 'none' | 'fade' | 'dissolve' | 'slide' | 'circle' | 'wipe' | 'smooth' | 'glitch'
 
-// Nombre real del filtro "xfade" de ffmpeg para cada opción de la UI.
+// Nombre real del filtro "xfade" de ffmpeg para cada opción de la UI (todas
+// menos "glitch", que no es un tipo de xfade — tiene su propia función más
+// abajo, construida a mano con crop/overlay/concat).
 // "fade" (xfade) es un cross-fade liso (un clip se desvanece sobre el otro,
 // sin pasar por negro) — eso es lo que el usuario pidió como "Mezcla".
 // "fadeblack" sí pasa por negro un instante — eso es "Fundido".
@@ -348,7 +350,7 @@ export type TransitionType = 'none' | 'fade' | 'dissolve' | 'slide' | 'circle' |
 // pantalla revelando el video siguiente detrás, sin mezclar — distinto de
 // "slideleft" (todo el fotograma se desplaza entero) y de "smoothleft"
 // (igual que wipe pero con el borde difuminado en vez de una línea dura).
-const XFADE_NAME: Record<Exclude<TransitionType, 'none'>, string> = {
+const XFADE_NAME: Record<Exclude<TransitionType, 'none' | 'glitch'>, string> = {
   fade: 'fadeblack',
   dissolve: 'fade',
   slide: 'slideleft',
@@ -358,6 +360,154 @@ const XFADE_NAME: Record<Exclude<TransitionType, 'none'>, string> = {
 }
 
 const TRANSITION_DURATION = 0.6 // segundos — fijo, no configurable (mantener la UI simple)
+
+/**
+ * Transición "Glitch" (pedida 2026-11-09, afinada en 3 rondas con el
+ * usuario sobre un boceto animado antes de construirse acá): una franja
+ * vertical ancha, con líneas más chicas detrás (cada una más angosta), que
+ * hace un recorrido completo de izquierda a derecha y de vuelta.
+ *
+ * - Ida (mitad 1 del recorrido): el fondo se queda tal cual el clip A
+ *   (no se revela nada todavía); las franjas pasan por encima mostrando por
+ *   dentro un adelanto del clip B.
+ * - Vuelta (mitad 2): recién ahí el fondo empieza a revelar el clip B
+ *   detrás, a medida que la franja principal retrocede; las franjas siguen
+ *   mostrando el clip A por dentro mientras tanto.
+ *
+ * No es un tipo de "xfade" — se arma a mano con "crop"+"overlay" encadenados
+ * (plus "concat" al final, igual idea que "xfade" por dentro: el resultado
+ * es el clip A completo con la transición superpuesta, seguido del resto
+ * del clip B que no alcanzó a usarse en la superposición).
+ *
+ * Dos limitaciones de ffmpeg que moldean cómo está construida (confirmadas
+ * probando con ffmpeg real antes de portar esto, ver GOTCHAS.md):
+ * 1. El ancho/alto de un "crop" NO puede variar cuadro a cuadro (solo x/y
+ *    sí) — por eso el ancho de cada franja es un número fijo calculado de
+ *    antemano (que se va angostando de una franja a la siguiente), nunca
+ *    una fórmula con "t" dentro.
+ * 2. Por la limitación anterior, el fondo no se puede revelar con un solo
+ *    "crop" de ancho creciente — se arma como una "persiana" de K franjas
+ *    de ancho FIJO que aparecen de golpe cada una en su propio instante
+ *    (`overlay enable='gte(t,...)'`), no con un barrido de ancho continuo.
+ *    Con suficientes franjas (más en pantallas más anchas) no se nota el
+ *    escalonado a simple vista.
+ */
+function buildGlitchTransitionFilter(
+  labelA: string,
+  labelB: string,
+  offset: number,
+  td: number,
+  w: number,
+  h: number,
+  idx: number,
+): { filter: string; outLabel: string } {
+  const half = td / 2
+  const BAR_W = Math.max(2, Math.round(w * 0.045))
+  const LAG = 0.03
+  const BAR_COUNT = 5 // 1 principal (i=0, la más ancha) + 4 que la siguen, angostándose
+
+  const barWidth = (i: number) => (i === 0 ? BAR_W : Math.max(2, Math.round(BAR_W * (1 - i / BAR_COUNT))))
+  const barOpacity = (i: number) => (i === 0 ? 1 : Math.round(0.55 * (1 - i / BAR_COUNT) * 1000) / 1000)
+  const clipExpr = (e: string, lo: number, hi: number) => `min(max(${e},${lo}),${hi})`
+  // Posición de la franja i: ida (fase 1) de 0 a W, vuelta (fase 2) de W a
+  // 0 — cada franja que sigue a la principal va con un pequeño retraso
+  // ("LAG") para que se vea como si vinieran detrás.
+  const posPhase1 = (i: number) => {
+    const local = clipExpr(`(t-${offset.toFixed(4)}-${(i * LAG).toFixed(3)})`, 0, half)
+    return `((${local})/${half})*${w}`
+  }
+  const posPhase2 = (i: number) => {
+    const local = clipExpr(`(t-${(offset + half).toFixed(4)}-${(i * LAG).toFixed(3)})`, 0, half)
+    return `${w}-((${local})/${half})*${w}`
+  }
+
+  const K = Math.min(24, Math.max(12, Math.round(w / 50)))
+
+  const parts: string[] = []
+  const tag = `gl${idx}`
+
+  // "labelA"/"labelB" se usan como entrada de MUCHOS filtros distintos acá
+  // abajo (cada franja, cada banda de la persiana) — a diferencia de un
+  // especificador crudo tipo "0:v" (que ffmpeg sí deja reusar libremente),
+  // una etiqueta de salida normal como "v0"/"v1" solo se puede consumir UNA
+  // vez; reusarla tal cual rompía la exportación ("Stream specifier ...
+  // matches no streams", confirmado 2026-11-09). "split" la copia tantas
+  // veces como haga falta, una copia por cada punto donde se necesita.
+  const needA = BAR_COUNT + 1 // 1 para el fondo + una por franja de fase 2
+  const needB = K + BAR_COUNT + 1 // persiana + franjas de fase 1 + la cola
+  const aCopies: string[] = Array.from({ length: needA }, (_, n) => `${tag}a${n}`)
+  const bCopies: string[] = Array.from({ length: needB }, (_, n) => `${tag}b${n}`)
+  parts.push(`[${labelA}]split=${needA}${aCopies.map((l) => `[${l}]`).join('')}`)
+  parts.push(`[${labelB}]split=${needB}${bCopies.map((l) => `[${l}]`).join('')}`)
+  let aIdx = 0
+  let bIdx = 0
+  const nextA = () => aCopies[aIdx++]
+  const nextB = () => bCopies[bIdx++]
+
+  parts.push(`[${nextA()}]format=yuv420p[${tag}base0]`)
+  let cur = `${tag}base0`
+
+  // Fondo, fase 2: "persiana" de K franjas de ancho fijo que van apareciendo
+  // de derecha a izquierda, a medida que la franja principal retrocede.
+  for (let k = K - 1; k >= 0; k--) {
+    const bx = Math.round((k * w) / K)
+    const bw = k < K - 1 ? Math.round(w / K) : w - bx
+    const revealT = offset + td - (k / K) * half
+    const cropLabel = `${tag}rv${k}c`
+    parts.push(`[${nextB()}]crop=w=${bw}:h=${h}:x=${bx}:y=0[${cropLabel}]`)
+    const next = `${tag}rv${k}o`
+    parts.push(`[${cur}][${cropLabel}]overlay=x=${bx}:y=0:enable='gte(t,${revealT.toFixed(4)})'[${next}]`)
+    cur = next
+  }
+
+  // Franjas, fase 1: contenido del clip B, fondo del clip A sin tocar.
+  for (const i of [4, 3, 2, 1, 0]) {
+    const bw = barWidth(i)
+    const xExpr = clipExpr(`${posPhase1(i)}-${bw}/2`, 0, w - bw)
+    const cropLabel = `${tag}p1${i}c`
+    parts.push(`[${nextB()}]crop=w=${bw}:h=${h}:x='${xExpr}':y=0[${cropLabel}]`)
+    let overSrc = cropLabel
+    if (i !== 0) {
+      const aLabel = `${tag}p1${i}a`
+      parts.push(`[${cropLabel}]format=yuva420p,colorchannelmixer=aa=${barOpacity(i)}[${aLabel}]`)
+      overSrc = aLabel
+    }
+    const next = `${tag}ap1${i}`
+    parts.push(
+      `[${cur}][${overSrc}]overlay=x='${xExpr}':y=0:enable='between(t,${offset.toFixed(4)},${(offset + half).toFixed(4)})'[${next}]`,
+    )
+    cur = next
+  }
+
+  // Franjas, fase 2: contenido del clip A, encima del fondo ya revelado.
+  for (const i of [4, 3, 2, 1, 0]) {
+    const bw = barWidth(i)
+    const xExpr = clipExpr(`${posPhase2(i)}-${bw}/2`, 0, w - bw)
+    const cropLabel = `${tag}p2${i}c`
+    parts.push(`[${nextA()}]crop=w=${bw}:h=${h}:x='${xExpr}':y=0[${cropLabel}]`)
+    let overSrc = cropLabel
+    if (i !== 0) {
+      const aLabel = `${tag}p2${i}a`
+      parts.push(`[${cropLabel}]format=yuva420p,colorchannelmixer=aa=${barOpacity(i)}[${aLabel}]`)
+      overSrc = aLabel
+    }
+    const next = `${tag}ap2${i}`
+    parts.push(
+      `[${cur}][${overSrc}]overlay=x='${xExpr}':y=0:enable='between(t,${(offset + half).toFixed(4)},${(offset + td).toFixed(4)})'[${next}]`,
+    )
+    cur = next
+  }
+
+  // Cola: lo que queda del clip B después del tramo ya usado en la
+  // transición, pegado justo después de la "cabeza" (clip A completo con la
+  // transición superpuesta) — misma idea que usa "xfade" por dentro.
+  const tailLabel = `${tag}tail`
+  parts.push(`[${nextB()}]trim=start=${td.toFixed(4)},setpts=PTS-STARTPTS[${tailLabel}]`)
+  const outLabel = `glout${idx}`
+  parts.push(`[${cur}][${tailLabel}]concat=n=2:v=1:a=0[${outLabel}]`)
+
+  return { filter: parts.join(';'), outLabel }
+}
 
 /**
  * Une varios clips en uno solo, cada uno ya recortado a su propio
@@ -435,11 +585,10 @@ export function buildMergeArgs(
     videoLabel = '[vout]'
     audioLabel = '[aout0]'
   } else {
-    const xfadeName = XFADE_NAME[transition as Exclude<TransitionType, 'none'>]
     const durations = clips.map((c) => c.trimEnd - c.trimStart)
-    // La superposición no puede durar más que el clip más corto, o "xfade"
-    // falla con un offset negativo — se acota automáticamente en vez de
-    // dejar que el usuario tenga que calcularlo a mano.
+    // La superposición no puede durar más que el clip más corto, o la
+    // transición falla con un offset negativo — se acota automáticamente en
+    // vez de dejar que el usuario tenga que calcularlo a mano.
     // 40% del clip más corto en vez de solo restarle un margen fijo: así
     // "td" queda SIEMPRE por debajo de la duración de cualquier clip, sin
     // casos límite con recortes muy breves (ej. un clip de 0.2s).
@@ -450,15 +599,30 @@ export function buildMergeArgs(
     let prevAudioLabel = clips[0].hasAudio ? '0:a' : 'sil0'
     let cumulative = durations[0]
     for (let i = 1; i < clips.length; i++) {
-      const offset = Math.max(0, cumulative - td).toFixed(3)
-      const vOut = `vx${i}`
+      const offset = Math.max(0, cumulative - td)
+      if (transition === 'glitch') {
+        const { filter: glitchFilter, outLabel } = buildGlitchTransitionFilter(
+          prevVideoLabel,
+          `v${i}`,
+          offset,
+          td,
+          w,
+          h,
+          i,
+        )
+        transitionChains.push(glitchFilter)
+        prevVideoLabel = outLabel
+      } else {
+        const xfadeName = XFADE_NAME[transition as Exclude<TransitionType, 'none' | 'glitch'>]
+        const vOut = `vx${i}`
+        transitionChains.push(
+          `[${prevVideoLabel}][v${i}]xfade=transition=${xfadeName}:duration=${td.toFixed(3)}:offset=${offset.toFixed(3)}[${vOut}]`,
+        )
+        prevVideoLabel = vOut
+      }
       const aOut = `ax${i}`
-      transitionChains.push(
-        `[${prevVideoLabel}][v${i}]xfade=transition=${xfadeName}:duration=${td.toFixed(3)}:offset=${offset}[${vOut}]`,
-      )
       const thisAudioLabel = clips[i].hasAudio ? `${i}:a` : `sil${i}`
       transitionChains.push(`[${prevAudioLabel}][${thisAudioLabel}]acrossfade=d=${td.toFixed(3)}[${aOut}]`)
-      prevVideoLabel = vOut
       prevAudioLabel = aOut
       cumulative = cumulative + durations[i] - td
     }

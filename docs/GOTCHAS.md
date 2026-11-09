@@ -3,6 +3,68 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## Transición "Glitch" en "Unir videos" (2026-11-09)
+
+Pedida explícitamente por el usuario tras probar las primeras 7 transiciones (xfade) —
+quería algo más elaborado, no un tipo de transición estándar de ffmpeg. Se validó el
+mecanismo ANTES de tocar la app: con ffmpeg real instalado en la Mac (`/opt/homebrew/bin/ffmpeg`,
+mucho más rápido de iterar que probar cada intento en ffmpeg.wasm dentro del navegador),
+generando clips sintéticos de color sólido con `-f lavfi -i color=...` y extrayendo
+fotogramas con `ffprobe`/`-frames:v 1` para inspeccionar visualmente cada ajuste. Una vez
+funcionando ahí, recién se portó a `commandBuilder.ts` (`buildGlitchTransitionFilter`).
+
+**El efecto en sí (afinado en 3 rondas sobre un boceto animado — Artifact HTML con canvas —
+antes de construirse, a pedido del propio usuario: "si tienes dudas, pregúntame antes de
+implementar"):** una franja ancha con líneas más chicas detrás (angostándose), un solo
+recorrido completo de izquierda a derecha y de vuelta.
+- **Ida (mitad 1):** el fondo se queda tal cual el clip A — las franjas pasan por encima
+  mostrando por dentro un adelanto del clip B.
+- **Vuelta (mitad 2):** recién ahí el fondo empieza a revelar el clip B detrás, a medida que
+  la franja principal retrocede; las franjas siguen mostrando el clip A por dentro mientras
+  tanto, hasta desaparecer al final.
+
+**Dos limitaciones de ffmpeg descubiertas probando (no son intuitivas, documentarlas para la
+próxima vez que se toque un filtro así de elaborado):**
+1. **El ancho/alto de un `crop` NO puede variar cuadro a cuadro — solo `x`/`y` sí.** Un primer
+   intento con `crop=w='<fórmula con t>'` para que el área revelada creciera con el tiempo
+   compiló sin error pero el ancho quedaba congelado en su valor inicial (t=0) — confirmado
+   comparando fotogramas a distintos tiempos del mismo render, el "x" sí se movía pero el
+   ancho no. Arreglo: el ancho de cada franja es siempre un número fijo calculado de
+   antemano en TS (nunca una fórmula con "t"), y el fondo se revela con una "persiana" de K
+   franjas de ancho FIJO que aparecen de golpe cada una en su propio instante
+   (`overlay enable='gte(t,...)'`) en vez de un barrido de ancho continuo — con suficientes
+   franjas (`K` entre 12 y 24 según el ancho del video) no se nota el escalonado a simple
+   vista.
+2. **Una etiqueta de salida normal (ej. `[v1]`, definida por un filtro anterior) solo se
+   puede usar como entrada de OTRO filtro una vez — a diferencia de un especificador crudo
+   tipo `[0:v]`/`[1:v]`, que sí se puede referenciar muchas veces sin problema.** El primer
+   intento portado a la app (que SÍ funcionaba igual en ffmpeg de la Mac, porque ahí se
+   referenciaba `[0:v]`/`[1:v]` directo) reusaba `[v0]`/`[v1]` como entrada de ~20 filtros
+   distintos (cada franja, cada banda de la persiana) y fallaba en ffmpeg.wasm con
+   `Stream specifier 'v1' ... matches no streams` / `Invalid stream specifier: v1` — un error
+   bastante confuso que no menciona "split" ni deja claro la causa real. Arreglo: `split=N`
+   al principio de la función, generando N copias numeradas de cada clip de entrada, y cada
+   franja/banda consume una copia distinta en vez de reusar la misma etiqueta.
+
+**Probado de punta a punta:**
+- 2 clips (webm sintético con audio real, patrón canvas+oscillator+MediaStreamDestination) vía
+  llamada directa a `runMerge` Y vía la UI real (arrastrar, elegir "Glitch", exportar) —
+  exportó sin error, duración correcta, y revisando fotogramas a varios tiempos del resultado
+  se confirmó visualmente el comportamiento descrito arriba (fondo sin tocar + adelanto en la
+  ida, fondo revelándose + franjas del clip anterior en la vuelta, limpio al final).
+- **3 clips encadenados** (para confirmar que la segunda transición del loop no choca en
+  nombres de etiquetas con la primera — cada llamada a `buildGlitchTransitionFilter` recibe
+  un `idx` único, usado como prefijo de TODAS sus etiquetas): el segundo cruce (clip2→clip3)
+  se ve igual de bien que el primero.
+- **Rendimiento:** con clips sintéticos de 720p/5s, "Glitch" tomó ~2.1s contra ~3.3s de
+  "Mezcla" en el mismo entorno de pruebas — pese a tener un filtergraph mucho más grande
+  (`split` + ~20 crop/overlay), no resultó más lento en la práctica. No se probó con video
+  real de más duración/resolución — si el usuario reporta que esta transición en particular
+  es notablemente más lenta con sus propios videos, el primer sospechoso es el tamaño de "K"
+  (la cantidad de franjas de la persiana, que escala con el ancho del video).
+
+Falta confirmación del usuario en dispositivo real.
+
 ## Transiciones en "Unir videos" (2026-11-09)
 
 Una sola transición elegida para TODAS las uniones (decisión explícita del usuario, no por
