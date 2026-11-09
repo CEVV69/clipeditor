@@ -9,6 +9,7 @@ import {
   buildMergeArgs,
   type EditSettings,
   type ImageEditSettings,
+  type TransitionType,
 } from './commandBuilder'
 
 const IMAGE_MIME: Record<string, string> = {
@@ -209,6 +210,7 @@ export function useFfmpeg() {
     targetHeight: number,
     music: File | null,
     musicVolume: number,
+    transition: TransitionType = 'none',
   ): Promise<Blob> {
     await load()
     progress.value = 0
@@ -236,6 +238,7 @@ export function useFfmpeg() {
       musicName,
       musicVolume,
       outputName,
+      transition,
     )
 
     const cleanup = async () => {

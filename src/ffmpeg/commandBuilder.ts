@@ -337,6 +337,22 @@ export interface MergeClipInput {
   hasAudio: boolean
 }
 
+/** Biblioteca de transiciones ofrecida en la UI — "none" es el corte directo de siempre. */
+export type TransitionType = 'none' | 'fade' | 'dissolve' | 'slide' | 'circle'
+
+// Nombre real del filtro "xfade" de ffmpeg para cada opción de la UI.
+// "fade" (xfade) es un cross-fade liso (un clip se desvanece sobre el otro,
+// sin pasar por negro) — eso es lo que el usuario pidió como "Mezcla".
+// "fadeblack" sí pasa por negro un instante — eso es "Fundido".
+const XFADE_NAME: Record<Exclude<TransitionType, 'none'>, string> = {
+  fade: 'fadeblack',
+  dissolve: 'fade',
+  slide: 'slideleft',
+  circle: 'circleopen',
+}
+
+const TRANSITION_DURATION = 0.6 // segundos — fijo, no configurable (mantener la UI simple)
+
 /**
  * Une varios clips en uno solo, cada uno ya recortado a su propio
  * inicio/fin. Los videos de origen pueden venir en proporciones distintas
@@ -346,13 +362,20 @@ export interface MergeClipInput {
  * franjas negras, a cambio de perder un poco de los bordes en los clips que
  * no calzan con esa proporción.
  *
- * El filtro "concat" exige que TODOS los clips traigan exactamente los
- * mismos streams (un video + un audio cada uno) — si alguno no tiene pista
- * de audio propia (pasa con algunas grabaciones de pantalla/cámara),
- * referenciar su audio inexistente aborta todo el procesamiento. Por eso
- * cada clip sin audio se empareja con silencio generado del mismo largo
- * exacto que su recorte ("anullsrc", una fuente de audio vacía, no hace
- * falta un archivo real para eso).
+ * Sin transición ("none"), el filtro "concat" exige que TODOS los clips
+ * traigan exactamente los mismos streams (un video + un audio cada uno) —
+ * si alguno no tiene pista de audio propia (pasa con algunas grabaciones de
+ * pantalla/cámara), referenciar su audio inexistente aborta todo el
+ * procesamiento. Por eso cada clip sin audio se empareja con silencio
+ * generado del mismo largo exacto que su recorte ("anullsrc", una fuente de
+ * audio vacía, no hace falta un archivo real para eso) — igual con
+ * transición, donde se encadena con "acrossfade" en vez de "concat".
+ *
+ * Con transición, "xfade"/"acrossfade" superponen el final de un clip con
+ * el inicio del siguiente durante TRANSITION_DURATION segundos — por eso
+ * cada clip necesita que su propio recorte dure más que eso en ambos
+ * extremos; se recorta la duración pedida al clip más corto de la lista
+ * para que ningún recorte muy breve rompa el filtro.
  *
  * Música de fondo opcional: se mezcla con el audio original de los clips
  * (que se mantiene a su volumen normal) a un volumen más bajo, y si es más
@@ -367,6 +390,7 @@ export function buildMergeArgs(
   musicInputName: string | null,
   musicVolume: number,
   outputName: string,
+  transition: TransitionType = 'none',
 ): string[] {
   const args: string[] = []
   for (const clip of clips) {
@@ -380,7 +404,7 @@ export function buildMergeArgs(
 
   const w = Math.max(2, Math.round(targetWidth))
   const h = Math.max(2, Math.round(targetHeight))
-  const FPS = 30 // concat exige que todos los clips compartan la misma tasa de cuadros
+  const FPS = 30 // concat/xfade exigen que todos los clips compartan la misma tasa de cuadros
 
   const videoChains = clips.map(
     (_, i) =>
@@ -393,23 +417,62 @@ export function buildMergeArgs(
         : `anullsrc=channel_layout=stereo:sample_rate=44100:duration=${(clip.trimEnd - clip.trimStart).toFixed(3)}[sil${i}]`,
     )
     .filter((c): c is string => c !== null)
-  const concatRefs = clips.map((clip, i) => `[v${i}][${clip.hasAudio ? `${i}:a` : `sil${i}`}]`).join('')
-
   const allChains = [...videoChains, ...silenceChains]
-  let filter = `${allChains.join(';')};${concatRefs}concat=n=${clips.length}:v=1:a=1[vout][aout0]`
 
-  let audioLabel = '[aout0]'
+  let filter: string
+  let videoLabel: string
+  let audioLabel: string
+
+  if (transition === 'none' || clips.length < 2) {
+    const concatRefs = clips.map((clip, i) => `[v${i}][${clip.hasAudio ? `${i}:a` : `sil${i}`}]`).join('')
+    filter = `${allChains.join(';')};${concatRefs}concat=n=${clips.length}:v=1:a=1[vout][aout0]`
+    videoLabel = '[vout]'
+    audioLabel = '[aout0]'
+  } else {
+    const xfadeName = XFADE_NAME[transition as Exclude<TransitionType, 'none'>]
+    const durations = clips.map((c) => c.trimEnd - c.trimStart)
+    // La superposición no puede durar más que el clip más corto, o "xfade"
+    // falla con un offset negativo — se acota automáticamente en vez de
+    // dejar que el usuario tenga que calcularlo a mano.
+    // 40% del clip más corto en vez de solo restarle un margen fijo: así
+    // "td" queda SIEMPRE por debajo de la duración de cualquier clip, sin
+    // casos límite con recortes muy breves (ej. un clip de 0.2s).
+    const td = Math.min(TRANSITION_DURATION, Math.max(0.05, Math.min(...durations) * 0.4))
+
+    const transitionChains: string[] = []
+    let prevVideoLabel = 'v0'
+    let prevAudioLabel = clips[0].hasAudio ? '0:a' : 'sil0'
+    let cumulative = durations[0]
+    for (let i = 1; i < clips.length; i++) {
+      const offset = Math.max(0, cumulative - td).toFixed(3)
+      const vOut = `vx${i}`
+      const aOut = `ax${i}`
+      transitionChains.push(
+        `[${prevVideoLabel}][v${i}]xfade=transition=${xfadeName}:duration=${td.toFixed(3)}:offset=${offset}[${vOut}]`,
+      )
+      const thisAudioLabel = clips[i].hasAudio ? `${i}:a` : `sil${i}`
+      transitionChains.push(`[${prevAudioLabel}][${thisAudioLabel}]acrossfade=d=${td.toFixed(3)}[${aOut}]`)
+      prevVideoLabel = vOut
+      prevAudioLabel = aOut
+      cumulative = cumulative + durations[i] - td
+    }
+
+    filter = `${allChains.join(';')};${transitionChains.join(';')}`
+    videoLabel = `[${prevVideoLabel}]`
+    audioLabel = `[${prevAudioLabel}]`
+  }
+
   if (musicInputName) {
     const musicIndex = clips.length
     // "normalize=0" evita que amix baje solo el volumen del audio original
     // por tener dos entradas — el balance entre ambos queda a cargo de
     // musicVolume, no de un promedio automático.
-    filter += `;[${musicIndex}:a]volume=${musicVolume}[bgm];[aout0][bgm]amix=inputs=2:duration=first:normalize=0[aout]`
+    filter += `;[${musicIndex}:a]volume=${musicVolume}[bgm];${audioLabel}[bgm]amix=inputs=2:duration=first:normalize=0[aout]`
     audioLabel = '[aout]'
   }
 
   args.push('-filter_complex', filter)
-  args.push('-map', '[vout]', '-map', audioLabel)
+  args.push('-map', videoLabel, '-map', audioLabel)
   args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', outputName)
   return args
 }

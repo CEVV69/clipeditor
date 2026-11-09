@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import TrimPanel from './TrimPanel.vue'
 import { useFfmpeg } from '../ffmpeg/useFfmpeg'
+import type { TransitionType } from '../ffmpeg/commandBuilder'
 
 const emit = defineEmits<{ (e: 'back'): void }>()
 
@@ -23,6 +24,15 @@ const clipVideoEls = new Map<number, HTMLVideoElement>()
 
 const musicFile = ref<File | null>(null)
 const musicVolume = ref(0.25)
+
+const TRANSITIONS: { id: TransitionType; label: string }[] = [
+  { id: 'none', label: 'Ninguna' },
+  { id: 'fade', label: 'Fundido' },
+  { id: 'dissolve', label: 'Mezcla' },
+  { id: 'slide', label: 'Deslizar' },
+  { id: 'circle', label: 'Círculo' },
+]
+const transition = ref<TransitionType>('none')
 
 const outputName = ref('video-unido')
 // Sin caracteres que rompan un nombre de archivo, y siempre con ".mp4" al
@@ -150,6 +160,7 @@ async function onMergeExport() {
       target.naturalHeight,
       musicFile.value,
       musicVolume.value,
+      transition.value,
     )
     if (resultUrl.value) URL.revokeObjectURL(resultUrl.value)
     resultUrl.value = URL.createObjectURL(blob)
@@ -224,6 +235,22 @@ const exportLabel = ref('Unir videos')
         <span class="music-name">{{ musicFile.name }}</span>
         <input v-model.number="musicVolume" class="music-volume" type="range" min="0" max="1" step="0.01" />
         <button type="button" class="remove" @click="removeMusic">Quitar</button>
+      </div>
+    </div>
+
+    <div v-if="clips.length >= 2" class="transition-section glass">
+      <p class="section-title">Transición entre videos</p>
+      <div class="transition-options">
+        <button
+          v-for="t in TRANSITIONS"
+          :key="t.id"
+          type="button"
+          class="pill"
+          :class="{ active: transition === t.id }"
+          @click="transition = t.id"
+        >
+          {{ t.label }}
+        </button>
       </div>
     </div>
 
@@ -468,6 +495,30 @@ const exportLabel = ref('Unir videos')
 .music-row .remove:hover {
   background: var(--accent-2);
   color: #fff;
+}
+.transition-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+}
+.transition-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.transition-options .pill {
+  background: var(--glass-strong);
+  color: var(--text);
+  border: none;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+.transition-options .pill.active {
+  background: var(--accent);
 }
 .output-name {
   width: 100%;

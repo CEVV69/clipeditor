@@ -3,6 +3,38 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## Transiciones en "Unir videos" (2026-11-09)
+
+Una sola transición elegida para TODAS las uniones (decisión explícita del usuario, no por
+clip — más simple de usar y de construir), 5 opciones en `MergeView.vue`: Ninguna (comportamiento
+de siempre, `concat`), Fundido, Mezcla, Deslizar, Círculo. Mapeo a los nombres reales del filtro
+`xfade` de ffmpeg en `commandBuilder.ts` (`XFADE_NAME`): Fundido→`fadeblack` (pasa por negro),
+Mezcla→`fade` (cross-fade liso, sin pasar por negro — ojo que el nombre del filtro "fade" es la
+Mezcla de la UI, no el Fundido), Deslizar→`slideleft`, Círculo→`circleopen`.
+
+- **Con transición, el video usa `xfade` en cadena en vez de `concat`** (uno por cada par de
+  clips consecutivos, encadenados: `[v0][v1]xfade=...[vx1]`, `[vx1][v2]xfade=...[vx2]`, etc.) y
+  el audio usa `acrossfade` igual encadenado — mismo patrón de silencio con `anullsrc` para
+  clips sin audio que ya usaba `concat`, solo que ahora se cruza con `acrossfade` en vez de
+  concatenarse.
+- **Offset de cada `xfade`:** no es fijo — depende de la duración acumulada del resultado hasta
+  ese punto menos la duración de la transición (`cumulative - td`). Si se vuelve a tocar este
+  código, no asumir que el offset es igual en cada paso.
+- **Duración de la transición (`td`) se acota SIEMPRE al clip más corto de la lista** (40% de su
+  duración, tope 0.6s) — `xfade`/`acrossfade` fallan con offset negativo si la superposición
+  pedida dura más que algún clip. No expuesto como ajuste en la UI a propósito (fijo en
+  `TRANSITION_DURATION = 0.6`), acorde al pedido del usuario de mantener la UI simple — si pide
+  poder ajustarla, agregar un slider ahí, no tocar el cálculo de seguridad.
+- **Probado de punta a punta en el panel de pruebas** con 2 clips sintéticos (colores sólidos
+  rojo/azul, con audio real vía canvas+oscillator+MediaStreamDestination, mismo patrón que
+  funcionó para "Extraer audio") y transición "Mezcla": exportó sin error, duración final
+  correcta (2.9+2.9-0.6≈5.3s) y, al buscar el punto medio del video resultante, el fotograma
+  mostraba un tono mezclado entre el rojo y el azul de origen — confirma que el cross-dissolve
+  real está ocurriendo, no solo que el comando no falló. No se probaron las otras 4 opciones
+  individualmente (mismo código `xfade` genérico, solo cambia el nombre del tipo) ni con más de
+  2 clips — si se reporta un problema con 3+ clips o con Fundido/Deslizar/Círculo específicamente,
+  revisar el encadenado de offsets primero.
+
 ## Extraer audio (2026-11-08)
 
 Nueva herramienta de video (no aplica a imagen): "-vn -c:a libmp3lame -q:a 2" (sin filtro de
