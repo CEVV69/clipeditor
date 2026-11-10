@@ -3,6 +3,29 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Glitch": la salida final mantiene la resolución original pedida (2026-11-10, mismo día)
+
+El usuario rechazó explícitamente que el archivo final quedara en 960×540 ("Pero así no me
+sirve, debe mantenerse la resolución original"). Arreglo: en `buildMergeArgs` se separó la
+resolución de TRABAJO (`w`/`h`, la que se sigue topando a 960×540 de área solo para "Glitch",
+necesaria para no quedarse sin memoria durante el filtrado pesado) de la resolución de SALIDA
+(`outputW`/`outputH`, siempre la que pidió el usuario — la del primer clip). Al final del
+filtergraph, después de las transiciones y de mezclar la música, se agrega una sola etapa
+`scale=outputW:outputH` sobre el video YA compuesto (no en cada rama del filtro pesado) para
+agrandarlo de vuelta antes de codificar. `bitrateCapArgs` también pasó a usar `outputW/outputH`
+en vez de `w/h`.
+
+Contrapartida que el usuario ya conoce: durante los tramos con "Glitch" el detalle real es el de
+960×540 agrandado con interpolación, no nitidez nativa — pero el archivo final SÍ queda con las
+dimensiones exactas pedidas (confirmado: pedido 1082×1916, resultado 1082×1920 — el 1920 en vez
+de 1916 es solo por el redondeo a número par que exige el encoder h264, no un error).
+
+Verificado con clips sintéticos a la resolución real que fallaba (1082×1916, 4 clips de 10s,
+h264 High) de dos formas: (1) llamando `runMerge` directo con la resolución completa sin topar
+— éxito, 38.3s, sin "Out of memory"; (2) flujo completo por la UI (subir 4 clips, elegir
+"Glitch", clic en "Unir videos", esperar) — éxito, mismo resultado, video final reproducible de
+38.2s a 1082×1920. Falta que el usuario lo confirme en su dispositivo real (PC y celular).
+
 ## "Glitch": tope bajado más por fallar en celular (2026-11-10, mismo día)
 
 Con el tope de 720p (nota de abajo) el usuario probó en su celular: llegó a 75% y "la app se

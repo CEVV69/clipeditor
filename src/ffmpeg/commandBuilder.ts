@@ -643,8 +643,19 @@ export function buildMergeArgs(
     args.push('-stream_loop', '-1', '-i', musicInputName)
   }
 
-  let w = Math.max(2, Math.round(targetWidth))
-  let h = Math.max(2, Math.round(targetHeight))
+  // "outputW/outputH" es SIEMPRE la resolución final del archivo (la que
+  // pidió el usuario, la del primer clip) — "w/h" es la resolución de
+  // TRABAJO, que para "Glitch" se achica para no quedarse sin memoria (ver
+  // nota abajo) y se vuelve a agrandar al final con un "scale" de más,
+  // justo antes de guardar. El usuario pidió explícitamente mantener la
+  // resolución original del archivo aunque el efecto internamente trabaje
+  // más chico (2026-11-10) — ojo que esto es agrandar con interpolación,
+  // no nitidez nativa real, pero el archivo final SÍ queda con las
+  // dimensiones que pidió.
+  const outputW = Math.max(2, Math.round(targetWidth))
+  const outputH = Math.max(2, Math.round(targetHeight))
+  let w = outputW
+  let h = outputH
 
   // "Glitch" es, por lejos, la transición más pesada en memoria (~12-16
   // ramas de crop/overlay por unión) — confirmado con un video real del
@@ -757,8 +768,17 @@ export function buildMergeArgs(
     audioLabel = '[aout]'
   }
 
+  // Si "Glitch" trabajó más chico que la resolución pedida, se agranda de
+  // vuelta acá, al final, sobre el resultado YA completo (una sola vez,
+  // no en cada rama del filtro) — mucho más liviano que haberlo mantenido
+  // grande durante todo el filtro pesado de arriba.
+  if (w !== outputW || h !== outputH) {
+    filter += `;${videoLabel}scale=${outputW}:${outputH}[vfinal]`
+    videoLabel = '[vfinal]'
+  }
+
   args.push('-filter_complex', filter)
   args.push('-map', videoLabel, '-map', audioLabel)
-  args.push('-c:v', 'libx264', '-preset', 'ultrafast', ...bitrateCapArgs(w, h), '-c:a', 'aac', outputName)
+  args.push('-c:v', 'libx264', '-preset', 'ultrafast', ...bitrateCapArgs(outputW, outputH), '-c:a', 'aac', outputName)
   return args
 }
