@@ -643,8 +643,28 @@ export function buildMergeArgs(
     args.push('-stream_loop', '-1', '-i', musicInputName)
   }
 
-  const w = Math.max(2, Math.round(targetWidth))
-  const h = Math.max(2, Math.round(targetHeight))
+  let w = Math.max(2, Math.round(targetWidth))
+  let h = Math.max(2, Math.round(targetHeight))
+
+  // "Glitch" es, por lejos, la transición más pesada en memoria (~12-16
+  // ramas de crop/overlay por unión) — confirmado con un video real del
+  // usuario (1082×1916, "Out of memory" repetible siempre a esa
+  // resolución, 2026-11-10): a resolución completa se cuelga incluso
+  // después de acotar cada rama a su propio tramo de tiempo (nota de
+  // `buildGlitchTransitionFilter`), pero a 720p igual de contenido anduvo
+  // bien (confirmado con el MISMO archivo). Las otras 7 transiciones no
+  // tienen este problema (confirmadas por el usuario a resolución
+  // completa) — el tope va solo acá, no para todas.
+  if (transition === 'glitch') {
+    const SAFE_AREA = 1280 * 720
+    const area = w * h
+    if (area > SAFE_AREA) {
+      const scale = Math.sqrt(SAFE_AREA / area)
+      w = Math.max(2, Math.round(w * scale))
+      h = Math.max(2, Math.round(h * scale))
+    }
+  }
+
   const FPS = 30 // concat/xfade exigen que todos los clips compartan la misma tasa de cuadros
 
   const videoChains = clips.map(

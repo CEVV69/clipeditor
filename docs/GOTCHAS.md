@@ -3,6 +3,41 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Glitch": tope automático de resolución — CONFIRMADO con el archivo real que causaba el error (2026-11-10)
+
+El usuario volvió a probar (con el arreglo de `trim` de la nota de abajo ya puesto) y seguía
+fallando — pero esta vez el log de error trajo la resolución exacta de sus videos:
+**1082×1916** (prácticamente 1080p vertical completo, h264 High profile, generado por "Wan").
+Con ese dato se pudo por fin REPRODUCIR el "Out of memory" de verdad (generando clips sintéticos
+pero a esa resolución exacta, 1082×1916/10s/h264 High, con `ffmpeg` real en la Mac) — confirmado
+el MISMO error exacto ("Error while filtering: Out of memory", mismo patrón de `swscaler`
+repetido) con 4 clips de esa resolución + música + "Glitch".
+
+**Con un repro real por fin en la mano**, se probó bajar la resolución de trabajo: a la mitad
+(540×958) funcionó (20.9s); a 720p (720×1276) también funcionó (26.2s) — confirma que la
+resolución (no la duración, ni la cantidad de clips, ni el `trim` ya puesto) es la palanca real.
+El arreglo de `trim` de la nota de abajo sigue siendo válido y necesario (ayuda con clips largos
+en una cadena de varias transiciones), pero por sí solo NO alcanza a resolución completa.
+
+**Arreglo final:** `buildMergeArgs` ahora topa automáticamente la resolución de trabajo SOLO
+cuando `transition === 'glitch'` — si el área (ancho×alto) supera 1280×720 píxeles, la achica
+proporcionalmente (mismo aspecto) hasta calzar en esa área, antes de armar cualquier filtro. Las
+otras 7 transiciones NO tienen este tope (confirmadas por el usuario funcionando bien a
+resolución completa con sus propios videos) — es una limitación específica de "Glitch" por lo
+pesado de su filtro, no de "Unir videos" en general. El usuario no tiene que hacer nada: el tope
+es automático y transparente.
+
+**CONFIRMADO de punta a punta** con la resolución EXACTA del usuario (1082×1916, sin achicarla a
+mano) — llamada directa a `runMerge` Y por la UI real completa (arrastrar 4 clips → elegir
+"Glitch" → exportar): sin error, salida de 720×1276 (el tope aplicado solo), 38.2s de duración
+(4×10s − 3×0.6s de transiciones, como corresponde), ~27s de proceso.
+
+**Contrapartida a tener presente:** con "Glitch" el video final queda a 720p como máximo (en vez
+de a la resolución real de los clips subidos) — un recorte de calidad real, pero es la única
+forma de que la transición no falle del todo con contenido de alta resolución en este motor de
+ffmpeg dentro del navegador. Si el usuario pregunta por qué "Glitch" se ve menos nítido que las
+otras transiciones con el mismo material, esa es la razón.
+
 ## "Glitch": arreglo real del "Out of memory" — recortar cada rama a su tramo (2026-11-10)
 
 Retomando la pista de la nota de abajo ("cada clip se `split`ea en varias copias"), se encontró
