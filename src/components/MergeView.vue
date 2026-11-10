@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import TrimPanel from './TrimPanel.vue'
-import { useFfmpeg } from '../ffmpeg/useFfmpeg'
-import type { TransitionType } from '../ffmpeg/commandBuilder'
+import { useFfmpeg, FriendlyMergeError } from '../ffmpeg/useFfmpeg'
+import { estimateGlitchLoad, GLITCH_MAX_LOAD, GLITCH_TOO_LONG_MESSAGE, type TransitionType } from '../ffmpeg/commandBuilder'
 
 const emit = defineEmits<{ (e: 'back'): void }>()
 
@@ -36,6 +36,17 @@ const TRANSITIONS: { id: TransitionType; label: string }[] = [
   { id: 'glitch', label: 'Glitch' },
 ]
 const transition = ref<TransitionType>('none')
+
+// "Glitch" no aguanta bien clips de varios minutos (ver GOTCHAS.md) — se
+// avisa apenas se elige, con los clips YA cargados, en vez de solo al
+// intentar unir (mismo texto corto que usa el aviso real en `runMerge`,
+// para no duplicar el número exacto en dos lugares).
+const glitchTooLong = computed(
+  () =>
+    transition.value === 'glitch' &&
+    clips.value.length >= 2 &&
+    estimateGlitchLoad(clips.value.map((c) => ({ trimStart: c.trimStart, trimEnd: c.trimEnd }))) > GLITCH_MAX_LOAD,
+)
 
 const outputName = ref('video-unido')
 // Sin caracteres que rompan un nombre de archivo, y siempre con ".mp4" al
@@ -169,7 +180,12 @@ async function onMergeExport() {
     resultUrl.value = URL.createObjectURL(blob)
   } catch (err) {
     console.error('merge failed', err)
-    errorMessage.value = 'No se pudo unir los videos. Intenta de nuevo.'
+    // "FriendlyMergeError" es texto corto pensado para mostrarse tal cual
+    // (ej. el aviso de clips muy largos con "Glitch") — cualquier otro error
+    // trae el log técnico de ffmpeg completo, que no sirve mostrado en la
+    // UI (queda solo en la consola, por si hace falta revisarlo).
+    errorMessage.value =
+      err instanceof FriendlyMergeError ? err.message : 'No se pudo unir los videos. Intenta de nuevo.'
   } finally {
     exporting.value = false
   }
@@ -255,6 +271,7 @@ const exportLabel = ref('Unir videos')
           {{ t.label }}
         </button>
       </div>
+      <p v-if="glitchTooLong" class="error">{{ GLITCH_TOO_LONG_MESSAGE }}</p>
     </div>
 
     <div v-if="clips.length >= 2" class="output-name glass">

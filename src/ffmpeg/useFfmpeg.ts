@@ -13,10 +13,16 @@ import {
   computeMergeOutputDuration,
   estimateGlitchLoad,
   GLITCH_MAX_LOAD,
+  GLITCH_TOO_LONG_MESSAGE,
   type EditSettings,
   type ImageEditSettings,
   type TransitionType,
 } from './commandBuilder'
+
+// Errores pensados para mostrarse TAL CUAL al usuario (texto corto y claro,
+// sin volcar el log de ffmpeg) — a diferencia de los demás "throw" de este
+// archivo, que sí incluyen el log técnico y solo deberían ir a la consola.
+export class FriendlyMergeError extends Error {}
 
 const IMAGE_MIME: Record<string, string> = {
   png: 'image/png',
@@ -337,11 +343,7 @@ export function useFfmpeg() {
         // uniones ya es demasiado alta (ver `estimateGlitchLoad` en
         // commandBuilder.ts para el número exacto).
         if (estimateGlitchLoad(mergeClips) > GLITCH_MAX_LOAD) {
-          throw new Error(
-            'Glitch no aguanta bien clips largos (varios minutos) — funciona mejor con clips cortos, de hasta ' +
-              'aprox. 1 minuto cada uno. Recorta el clip más largo antes de unir, o usa otra transición (las demás ' +
-              'no tienen este límite).',
-          )
+          throw new FriendlyMergeError(GLITCH_TOO_LONG_MESSAGE)
         }
 
         const videoOnlyName = 'merged_video.mp4'

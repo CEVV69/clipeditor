@@ -49,6 +49,21 @@ en vez de esa reescritura:
 transición (todas las demás no tienen este límite, confirmado con el clip de 3 minutos completo
 usando "Barrido").
 
+**Dónde aparece el aviso (2026-11-10, mismo día):** el usuario preguntó explícitamente dónde salía
+este mensaje, para no "contaminar con texto la app" — pidió que, si iba a salir, fuera recién al
+elegir "Glitch". Antes solo aparecía (como el resto de los errores de "Unir videos") después de
+hacer clic en "Unir videos" y que `runMerge` lo lanzara — además, se descubrió de paso que
+`MergeView.vue` reemplazaba CUALQUIER error real por un texto genérico ("No se pudo unir los
+videos. Intenta de nuevo.", solo el verdadero quedaba en la consola) — el mismo texto genérico que
+el usuario reportó varias veces en esta sesión, obligando a pedirle el log de la consola cada vez.
+Arreglado: se agregó una clase `FriendlyMergeError` (en `useFfmpeg.ts`) para errores pensados para
+mostrarse tal cual (sin el log técnico) — el aviso de clips largos la usa, y el mismo texto
+(`GLITCH_TOO_LONG_MESSAGE`, en `commandBuilder.ts`, un solo lugar para no desincronizar el texto)
+ahora también se calcula de forma reactiva en `MergeView.vue` y aparece como una línea chica debajo
+de los botones de transición EN EL MOMENTO de elegir "Glitch" (si los clips ya cargados son
+demasiado largos) — desaparece sola al elegir otra transición o si los clips cambian. No se agregó
+ningún texto permanente a la pantalla.
+
 ## "Glitch": audio perdido/desfasado — arreglado separando video y audio en pasadas distintas (2026-11-10, mismo día)
 
 Después del arreglo de memoria por cantidad de clips, el usuario probó con 5 clips reales (unos

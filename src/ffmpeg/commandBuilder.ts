@@ -841,6 +841,14 @@ const GLITCH_MIN_AREA = 480 * 270
 // debajo de eso, con margen, en vez de justo en el límite.
 export const GLITCH_MAX_LOAD = 400
 
+/** Mismo texto en los dos lugares donde hace falta (el aviso al tiro al
+ * elegir "Glitch" en `MergeView.vue`, y el error real si de todos modos se
+ * intenta unir, en `runMerge`) — un solo lugar para no desincronizar el
+ * texto entre ambos. */
+export const GLITCH_TOO_LONG_MESSAGE =
+  'Glitch no aguanta bien clips largos (varios minutos) — funciona mejor con clips cortos, de hasta aprox. 1 ' +
+  'minuto cada uno. Recorta el clip más largo antes de unir, o usa otra transición (las demás no tienen este límite).'
+
 /** "Carga" estimada de un merge con "Glitch" — combina cuántas uniones hay
  * con cuánto video total pasa por la cadena de 9 "overlay" de cada una (ver
  * nota de arriba). Más alto = más riesgo de "Out of memory", sin importar
