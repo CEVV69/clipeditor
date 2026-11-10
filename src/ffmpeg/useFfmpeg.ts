@@ -28,6 +28,15 @@ const CORE_VERSION = '0.12.6'
 // con import() dinámico; el build "umd" (pensado para <script> clásico) da
 // "failed to import ffmpeg-core.js" si se usa aquí.
 const CORE_BASE = `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/esm`
+// Núcleo multi-hilo: usa varios núcleos del procesador en vez de uno solo,
+// bastante más rápido — pero el navegador solo lo deja funcionar en una
+// página "cross-origin isolated" (cabeceras COOP/COEP, activadas acá vía el
+// service worker propio, `src/sw.js` — GitHub Pages no permite ponerlas
+// directo). Si por lo que sea esa condición no se cumple (navegador viejo,
+// primera visita antes de que el service worker tome control, etc.), cae
+// solo al núcleo de un hilo de siempre — nunca deja de funcionar, solo más
+// lento en ese caso.
+const CORE_BASE_MT = `https://unpkg.com/@ffmpeg/core-mt@${CORE_VERSION}/dist/esm`
 
 export function useFfmpeg() {
   const ffmpeg = new FFmpeg()
@@ -53,6 +62,22 @@ export function useFfmpeg() {
     if (loaded.value || loading.value) return
     loading.value = true
     try {
+      if (typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated) {
+        try {
+          await ffmpeg.load({
+            coreURL: await toBlobURL(`${CORE_BASE_MT}/ffmpeg-core.js`, 'text/javascript'),
+            wasmURL: await toBlobURL(`${CORE_BASE_MT}/ffmpeg-core.wasm`, 'application/wasm'),
+            workerURL: await toBlobURL(`${CORE_BASE_MT}/ffmpeg-core.worker.js`, 'text/javascript'),
+          })
+          loaded.value = true
+          return
+        } catch {
+          // Algo falló cargando el núcleo multi-hilo (ej. el navegador
+          // anunció "cross-origin isolated" pero el archivo .worker.js no
+          // cargó) — seguir con el de un hilo en vez de dejar la app sin
+          // poder editar nada.
+        }
+      }
       await ffmpeg.load({
         coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, 'text/javascript'),
         wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, 'application/wasm'),

@@ -3,6 +3,50 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## Núcleo multi-hilo de ffmpeg.wasm — implementado (2026-11-09)
+
+Pedido explícito del usuario tras ver que "Unir videos" con sus 5 clips tardaba varios minutos
+("¿por qué no poner al menos 2 núcleos?"). Hasta ahora quedaba como "palanca pendiente,
+evaluar solo si el usuario pide más velocidad" (ver nota más abajo) — ya se implementó.
+
+- **`@ffmpeg/core-mt` en vez de `@ffmpeg/core`** — usa varios núcleos del procesador (igual
+  versión, `0.12.6`, mismo patrón `toBlobURL` de siempre, pero cargando también
+  `ffmpeg-core.worker.js` además de `.js`/`.wasm`). Solo funciona en una página
+  "cross-origin isolated" (cabeceras `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy`,
+  que exigen `SharedArrayBuffer`) — GitHub Pages no deja configurar cabeceras HTTP propias
+  directo, así que se activa vía un service worker.
+- **`src/sw.js` reemplaza el service worker automático de `vite-plugin-pwa`** (antes
+  `generateSW`, ahora `injectManifest` con un worker a mano) — hace las DOS cosas en un solo
+  archivo para no tener dos service workers compitiendo por el mismo origen (ese era justo el
+  riesgo que tenía frenado este cambio): precachea el build igual que antes (`PrecacheController`
+  de `workbox-precaching`, agregado como devDependency explícita — ya estaba en `node_modules`
+  de forma transitiva pero no declarada, riesgo real de que un `npm install` futuro no la
+  trajera) y en el `fetch` le agrega a CADA respuesta las dos cabeceras COOP/COEP antes de
+  devolverla.
+- **`crossOriginIsolated` se chequea en tiempo de ejecución antes de pedir el núcleo multi-hilo**
+  (`useFfmpeg.ts`, función `load()`) — si no está disponible (navegador viejo, o la primera
+  visita antes de que el service worker tome control), cae solo al núcleo de un hilo de
+  siempre, con try/catch extra por si el núcleo multi-hilo falla cargar por cualquier otro
+  motivo. Nunca debería dejar la app sin poder editar, en el peor caso solo más lento.
+- **Gotcha real encontrado armando el service worker:** por defecto `injectManifest` compila
+  `src/sw.js` como MÓDULO ES (con `import` adentro, ya que usa `workbox-precaching`), pero
+  `registerSW.js` (el script que lo registra) lo hace SIN `type: 'module'` — confirmado
+  probando el build real (`npm run build` + `npm run preview`): el navegador rechazaba el
+  registro con "unknown error fetching the script" (el mismo texto, por casualidad, que ya
+  estaba documentado como limitación del panel de pruebas — pero esta vez la causa real era
+  otra, el panel tampoco deja probar service workers de todos modos). Arreglo:
+  `injectManifest.rollupFormat: 'iife'` en `vite.config.ts` — empaqueta todo (incluido
+  `workbox-precaching`) en un solo archivo clásico sin `import`, que sí registra bien sin
+  necesitar `type: 'module'`.
+- **No se pudo verificar que el multi-hilo realmente se active** (el service worker nunca
+  registra en el panel de pruebas, confirmado otra vez con este intento) — sí se verificó que:
+  el build de producción compila bien, el service worker se sirve con el formato correcto
+  (`iife`, sin `import` sueltos), y que la edición de un solo archivo sigue funcionando normal
+  con el código nuevo (sin el service worker de por medio, en modo desarrollo). La confirmación
+  real de que anda más rápido solo se puede hacer con el usuario probando en producción
+  (cevv69.github.io) — comparar el tiempo de un export igual antes/después, o revisar en las
+  herramientas de desarrollador del navegador si `self.crossOriginIsolated` da `true` ahí.
+
 ## "Unir videos" con clips largos/pesados — reportado como "no funciona" (2026-11-09)
 
 El usuario reportó que 5 clips de ~1.5 min cada uno (con transición y música) "no fue capaz de
