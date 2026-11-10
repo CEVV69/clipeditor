@@ -3,6 +3,48 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Glitch": arreglo real del "Out of memory" — recortar cada rama a su tramo (2026-11-10)
+
+Retomando la pista de la nota de abajo ("cada clip se `split`ea en varias copias"), se encontró
+y arregló la causa raíz real: cada franja/banda del filtro (persiana de revelado + franjas de
+fase 1/fase 2) recortaba (`crop`) una copia COMPLETA del clip A o B — el `crop` nunca tenía
+límite de TIEMPO, solo de posición/tamaño en pantalla. El `enable` del `overlay` que viene
+después solo controla si esa rama se MEZCLA en el resultado final, no si ffmpeg se MOLESTA en
+decodificar/filtrar esos fotogramas — así que, aunque visualmente cada franja solo se ve durante
+medio segundo, ffmpeg estaba filtrando el clip ENTERO en cada una de las ~12-16 ramas. Peor
+todavía en la segunda/tercera transición de una cadena de varios clips: ahí "A" ya es el
+resultado ACUMULADO de las transiciones anteriores (cada vez más largo), así que cada franja de
+esa transición filtraba ese acumulado completo de nuevo.
+
+**Arreglo:** se agregó un `trim` (recorte por tiempo) ANTES del `crop` en cada rama, para que
+ffmpeg solo filtre el tramo que esa rama realmente necesita:
+- Franjas de B (persiana + fase 1): solo usan el tramo `[0, td]` de B (los primeros ~0.6s del
+  clip que recién entra) — se recorta ahí y se desplaza con `setpts=PTS-STARTPTS+offset/TB`
+  (B parte en el segundo 0 de su propio reloj, pero tiene que aparecer recién en el segundo
+  `offset` del resultado final, así que hay que sumarle ese desplazamiento para que el `enable`
+  del `overlay`, que mira el reloj del resultado final, siga calzando).
+- Franjas de A (fase 2): solo usan el tramo `[offset+half, offset+td]` de A — como A nunca se
+  desplaza (su propio reloj YA es el del resultado final), `trim` solo, SIN `setpts`, alcanza:
+  conserva los tiempos originales tal cual, que ya calzan con el `enable`.
+- El fondo (`format` inicial de A) y la "cola" (lo que queda de B tras el tramo usado) NO se
+  tocan — esos sí necesitan el clip completo, son los únicos que de verdad lo usan entero.
+
+**Verificado con ffmpeg real antes de aplicar el cambio** (dos pruebas aparte, con `color=`
+sólido de origen/destino distinto y un `overlay` con `enable='between(t,...)'`): recortar el
+input del `overlay` con `trim` — con o sin `setpts` según el caso — sigue funcionando exactamente
+igual que antes, el `enable` sigue calzando en el momento correcto. Confirmado también de punta a
+punta con el filtro real (2 y 3 clips encadenados, formato vertical 576×1024, con movimiento real
+cuadro a cuadro en vez de color sólido fijo) — el resultado visual es idéntico a antes del
+arreglo (fondo intacto + adelanto de B en la ida, revelado + A de fondo en la vuelta).
+
+**Sigue sin confirmarse con los archivos reales del usuario** (nunca se pudo reproducir el "Out
+of memory" con clips sintéticos, ni antes ni después de este arreglo) — la razón de este cambio
+es puramente el razonamiento (reduce drásticamente la cantidad de datos que pasan por cada rama,
+en teoría debería bajar la memoria viva de forma proporcional), no una comparación antes/después
+midiendo memoria real. Si el usuario lo prueba y sigue fallando, el siguiente paso es pedirle
+directamente uno de sus archivos reales (o un link) para poder medir de verdad, en vez de seguir
+con sintéticos — ya se gastó mucho tiempo de sesión así sin reproducir el problema real.
+
 ## Causa real del error de "Glitch" con archivos reales: Out of memory (2026-11-09, sesión siguiente — PENDIENTE, sin arreglar)
 
 Después de re-habilitar "Glitch" (nota de abajo), el usuario la siguió probando con sus propios

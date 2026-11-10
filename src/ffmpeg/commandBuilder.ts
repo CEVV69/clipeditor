@@ -494,6 +494,41 @@ function buildGlitchTransitionFilter(
   const nextA = () => aCopies[aIdx++]
   const nextB = () => bCopies[bIdx++]
 
+  // "Out of memory" real con videos reales del usuario (confirmado
+  // 2026-11-09, no reproducible con clips de prueba cortos) — la causa:
+  // CADA franja/banda de acá abajo recortaba una copia completa del clip A
+  // o B (`crop` sin límite de tiempo), así que ffmpeg terminaba filtrando
+  // el clip ENTERO en cada una de las ~12-16 ramas, aunque visualmente solo
+  // se usa una ventana de medio segundo de cada una. Con clips reales
+  // largos (y, en la segunda/tercera transición de una cadena, con "A"
+  // siendo ya el resultado acumulado de las transiciones anteriores — cada
+  // vez más largo) eso multiplica el trabajo y la memoria viva sin
+  // necesidad. Arreglo: recortar cada copia a SOLO el tramo que esa rama
+  // usa de verdad, con "trim", ANTES del "crop" — confirmado con ffmpeg
+  // real que el recorte/encaje de tiempos sigue funcionando igual de bien
+  // con el "enable" del overlay (ver GOTCHAS.md).
+  // - Franjas/banda de B (fase 1 + persiana): solo usan el tramo [0, td]
+  //   de B — "trim" lo deja ahí, y como B parte en 0 pero tiene que verse
+  //   recién en el instante "offset" del resultado final, hay que
+  //   desplazar sus tiempos con "setpts" (si no, el "enable" nunca
+  //   calzaría).
+  // - Franjas de A (fase 2): solo usan el tramo [offset+half, offset+td]
+  //   de A — como A nunca se desplaza (su propio reloj YA es el del
+  //   resultado final), "trim" sin "setpts" basta: conserva los tiempos
+  //   originales tal cual, que ya calzan con el "enable".
+  const localB = () => {
+    const raw = nextB()
+    const out = `${raw}loc`
+    parts.push(`[${raw}]trim=start=0:end=${td.toFixed(4)},setpts=PTS-STARTPTS+${offset.toFixed(4)}/TB[${out}]`)
+    return out
+  }
+  const localA = () => {
+    const raw = nextA()
+    const out = `${raw}loc`
+    parts.push(`[${raw}]trim=start=${(offset + half).toFixed(4)}:end=${(offset + td).toFixed(4)}[${out}]`)
+    return out
+  }
+
   parts.push(`[${nextA()}]format=yuv420p[${tag}base0]`)
   let cur = `${tag}base0`
 
@@ -504,7 +539,7 @@ function buildGlitchTransitionFilter(
     const bw = k < K - 1 ? Math.round(w / K) : w - bx
     const revealT = offset + td - (k / K) * half
     const cropLabel = `${tag}rv${k}c`
-    parts.push(`[${nextB()}]crop=w=${bw}:h=${h}:x=${bx}:y=0[${cropLabel}]`)
+    parts.push(`[${localB()}]crop=w=${bw}:h=${h}:x=${bx}:y=0[${cropLabel}]`)
     const next = `${tag}rv${k}o`
     parts.push(`[${cur}][${cropLabel}]overlay=x=${bx}:y=0:enable='gte(t,${revealT.toFixed(4)})'[${next}]`)
     cur = next
@@ -515,7 +550,7 @@ function buildGlitchTransitionFilter(
     const bw = barWidth(i)
     const xExpr = clipExpr(`${posPhase1(i)}-${bw}/2`, 0, w - bw)
     const cropLabel = `${tag}p1${i}c`
-    parts.push(`[${nextB()}]crop=w=${bw}:h=${h}:x='${xExpr}':y=0[${cropLabel}]`)
+    parts.push(`[${localB()}]crop=w=${bw}:h=${h}:x='${xExpr}':y=0[${cropLabel}]`)
     let overSrc = cropLabel
     if (i !== 0) {
       const aLabel = `${tag}p1${i}a`
@@ -534,7 +569,7 @@ function buildGlitchTransitionFilter(
     const bw = barWidth(i)
     const xExpr = clipExpr(`${posPhase2(i)}-${bw}/2`, 0, w - bw)
     const cropLabel = `${tag}p2${i}c`
-    parts.push(`[${nextA()}]crop=w=${bw}:h=${h}:x='${xExpr}':y=0[${cropLabel}]`)
+    parts.push(`[${localA()}]crop=w=${bw}:h=${h}:x='${xExpr}':y=0[${cropLabel}]`)
     let overSrc = cropLabel
     if (i !== 0) {
       const aLabel = `${tag}p2${i}a`
