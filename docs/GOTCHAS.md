@@ -3,6 +3,53 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## Causa real del error de "Glitch" con archivos reales: Out of memory (2026-11-09, sesión siguiente — PENDIENTE, sin arreglar)
+
+Después de re-habilitar "Glitch" (nota de abajo), el usuario la siguió probando con sus propios
+videos reales (generados con una IA llamada "Wan", formato 9:16, silenciosos, duraciones tipo
+10/15/15/10s) y seguía fallando — pero esta vez con el arreglo de mostrar más líneas del log
+(60 en vez de 5, commit `822f3e3`) se pudo ver la causa real por primera vez, en Chrome Y en
+Safari por igual (NO es un tema de navegador):
+
+```
+frame=  207 fps=6.3 q=19.0 size=    5120kB time=00:00:06.83 bitrate=6138.0kbits/s speed=0.207x
+Error while filtering: Out of memory
+Failed to inject frame into filter network: Out of memory
+Error while processing the decoded data for stream #3:0
+```
+
+**"Out of memory" de verdad** — ffmpeg.wasm se queda sin memoria WASM disponible a mitad del
+filtrado (fotograma 207, ~6.8s de metraje procesado de un video final más largo). No se pudo
+reproducir con archivos sintéticos de prueba (se probó con duraciones iguales, formato 9:16,
+mudos, con música, en navegador normal y en la app instalada — todo funcionó) — la diferencia
+real debe estar en el PESO/complejidad de los archivos de video reales del usuario (contenido
+real con mucho detalle/movimiento pesa mucho más al decodificar que un `testsrc2` sintético, y
+el filtro de "Glitch" decodifica y mantiene en memoria VARIAS copias de cada clip a la vez por el
+`split` que usa para poder reutilizar cada clip en múltiples franjas/bandas — ver la nota de más
+abajo sobre por qué existe ese `split`).
+
+**Pistas para retomar la investigación:**
+- El filtro de "Glitch" es, por lejos, el más pesado en memoria de las 8 transiciones — cada
+  clip se `split`ea en `K+BAR_COUNT+1` copias (con `K=6`/`BAR_COUNT=3` actual, hasta 10 copias
+  por clip) para poder usarlo como entrada de muchos `crop`/`overlay` distintos. Con clips reales
+  pesados (no sintéticos), tener tantas copias de cada fotograma decodificado vivas al mismo
+  tiempo en la memoria WASM (que en `ffmpeg.wasm` sin hilos tiene un techo más bajo que en
+  escritorio) es la sospecha más fuerte.
+- Primer paso sugerido para la próxima sesión: pedirle al usuario UNO de sus archivos reales
+  (o un link para descargarlo) para probar con el peso/complejidad real en vez de seguir
+  adivinando con sintéticos — esta sesión se gastó mucho tiempo en sintéticos que nunca
+  reprodujeron el problema real.
+- Caminos de arreglo a evaluar: (a) bajar aún más `K`/`BAR_COUNT` (ya se bajó de 5/24 a 3/6, se
+  podría intentar 2/3), (b) evitar el `split` reestructurando el filtro para que cada clip se
+  decodifique una sola vez y las franjas se saquen todas de una sola copia ya en memoria en vez
+  de `split`eada, (c) bajar la resolución de trabajo interna de "Glitch" específicamente (p.ej.
+  escalar a 720p antes del filtro y reescalar al final) si el usuario sube clips en una
+  resolución más alta de la necesaria.
+- Mientras tanto, si el usuario insiste en usar "Glitch" con sus videos reales: probar con menos
+  clips a la vez (de a 2 en vez de 4), o clips más cortos, para ver si hay un punto donde sí
+  entra en memoria — eso ayudaría a entender si es un techo duro o algo que escala con la
+  cantidad/peso total.
+
 ## Transición "Glitch" — RE-HABILITADA, el "cuelgue" era un bug de mis propias pruebas (2026-11-09)
 
 Después de arreglar el cuelgue del núcleo multi-hilo (nota más abajo), el usuario probó de
