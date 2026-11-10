@@ -3,6 +3,23 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Glitch": tope bajado más por fallar en celular (2026-11-10, mismo día)
+
+Con el tope de 720p (nota de abajo) el usuario probó en su celular: llegó a 75% y "la app se
+reinicia sola, vuelve a la pantalla de subir video" — SIN mensaje de error. Eso es la firma
+típica de que el sistema operativo del celular mata la pestaña/app por memoria (un celular tiene
+mucha menos memoria disponible por pestaña que un computador, y no siempre avisa con un error de
+JS como en desktop — simplemente recarga la página). Aún no probó en PC para comparar.
+
+**Arreglo preventivo (sin esperar más pruebas, dado que ya hay margen real medido):** se bajó el
+tope de área de 1280×720 (921.600px) a **960×540 (518.400px)** — valor que YA se había probado
+con margen cómodo en la investigación anterior (540×958 con el archivo real que fallaba, 20.9s,
+sin apuros) en vez de un valor nuevo sin probar. Confirmado de nuevo con el mismo archivo real
+(1082×1916) tras el cambio: sigue funcionando bien (19s). Si el celular específico del usuario
+sigue fallando incluso con este tope más bajo, ya no sería solo cosa de resolución — revisar si
+ese celular en particular (iOS Safari, sobre todo) tiene un límite de memoria por pestaña más
+chico de lo normal.
+
 ## "Glitch": tope automático de resolución — CONFIRMADO con el archivo real que causaba el error (2026-11-10)
 
 El usuario volvió a probar (con el arreglo de `trim` de la nota de abajo ya puesto) y seguía

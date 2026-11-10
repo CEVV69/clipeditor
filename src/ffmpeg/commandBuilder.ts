@@ -651,12 +651,23 @@ export function buildMergeArgs(
   // usuario (1082×1916, "Out of memory" repetible siempre a esa
   // resolución, 2026-11-10): a resolución completa se cuelga incluso
   // después de acotar cada rama a su propio tramo de tiempo (nota de
-  // `buildGlitchTransitionFilter`), pero a 720p igual de contenido anduvo
-  // bien (confirmado con el MISMO archivo). Las otras 7 transiciones no
-  // tienen este problema (confirmadas por el usuario a resolución
-  // completa) — el tope va solo acá, no para todas.
+  // `buildGlitchTransitionFilter`). Las otras 7 transiciones no tienen este
+  // problema (confirmadas por el usuario a resolución completa) — el tope
+  // va solo acá, no para todas.
+  //
+  // El tope original (720p de área) funcionó bien en computador, pero en
+  // celular el usuario reportó que la app "se reinicia" a mitad de export
+  // (reportado 2026-11-10) — típico de que el sistema operativo mata la
+  // pestaña por memoria, sin ni siquiera un error de ffmpeg (el celular
+  // tiene mucho menos memoria disponible que un computador). Se bajó a
+  // 960×540 de área — valor ya probado con margen real (540×958 anduvo
+  // bien en ~21s con el mismo archivo pesado que antes fallaba) — para dar
+  // más colchón en dispositivos con poca memoria. Si vuelve a fallar en
+  // celular con este tope más bajo, el problema ya no es solo de
+  // resolución — revisar si el celular en particular tiene un límite de
+  // memoria por pestaña más bajo todavía (common en iOS Safari).
   if (transition === 'glitch') {
-    const SAFE_AREA = 1280 * 720
+    const SAFE_AREA = 960 * 540
     const area = w * h
     if (area > SAFE_AREA) {
       const scale = Math.sqrt(SAFE_AREA / area)
