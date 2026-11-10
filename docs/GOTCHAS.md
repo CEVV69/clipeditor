@@ -3,6 +3,52 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Glitch": límite real con clips de varios MINUTOS — se avisa antes de intentarlo (2026-11-10, mismo día)
+
+El usuario probó unir 3 clips reales (66.82s + 181.16s/3min + 113.62s, con música) con "Glitch" en
+su PC y volvió a fallar con "Out of memory" — con solo 3 clips, el tope por CANTIDAD de clips (ver
+nota de abajo) no bajaba nada (necesita más de 4 clips para activarse), así que esta falla es por
+otra razón: uno de los clips dura 3 MINUTOS. El usuario confirmó que sacando ese clip largo
+(quedando con los dos cortos) sí se pudo procesar bien, y que con "Barrido" (sin Glitch) los 3
+clips completos, incluido el largo, funcionaron bien (bastante más lento, ~6 minutos, pero sin
+error).
+
+**Causa real (distinta a la de "muchos clips"):** en `buildGlitchTransitionFilter`, el "fondo" de
+cada transición (`format=yuv420p[tag_base0]`) NO es solo el medio segundo que se ve de la
+transición — es el clip A COMPLETO hasta ese punto (o, en la 2da/3ra unión de una cadena, todo lo
+acumulado de las uniones anteriores), con 9 filtros "overlay" apilados encima a lo largo de TODO
+ese tramo (la persiana de fondo + las franjas, aunque solo se noten en el medio segundo real de la
+transición). Con clips cortos son pocos miles de cuadros pasando por esos 9 filtros seguidos; con
+un clip de varios minutos son muchísimos más cuadros — el problema no es solo la resolución de
+trabajo (que sí ayuda y ya se achica) sino la CANTIDAD DE CUADROS que atraviesan esa cadena,
+que bajar la resolución no arregla del todo (confirmado: con solo 2 transiciones el tope de
+resolución por cantidad de clips ni se activaba).
+
+Separar esto de raíz (que cada unión solo toque una ventana chica de cada clip, sin arrastrar el
+resto del clip completo) sería el arreglo correcto, pero significa rehacer buena parte de un
+filtro ya afinado a mano en varias rondas con el usuario (franjas, persiana, retraso entre
+franjas, etc.) — con el tiempo disponible, se optó por una mitigación más simple y de bajo riesgo
+en vez de esa reescritura:
+
+1. El tope de resolución de trabajo ahora combina cantidad de uniones **y** duración total (antes
+   solo miraba la cantidad de clips) — a esto se le llama "carga" (`estimateGlitchLoad`): duración
+   total de todos los clips × cantidad de uniones. El caso ya confirmado seguro (4 clips de ~12s)
+   da una carga de referencia de 144; por encima de eso, la resolución de trabajo se achica más
+   mientras más alta sea la carga.
+2. Si la carga es MUY alta (por encima de 400 — el caso real que falló dio 723), se avisa ANTES de
+   intentar el proceso, con un mensaje claro ("Glitch no aguanta bien clips largos... recorta el
+   clip más largo, o usa otra transición"), en vez de dejar que el usuario espere varios minutos
+   para terminar en el mismo error. El número 400 es conservador a propósito: bastante por encima
+   de los casos ya confirmados seguros (144, 180, 240) y bastante por debajo del caso real que
+   falló (723) — puede necesitar ajuste si en la práctica bloquea casos que sí funcionarían, o dejar
+   pasar alguno que siga fallando; no se pudo probar el límite exacto porque reproducir un clip de
+   3 minutos en ffmpeg.wasm toma demasiado tiempo para iterar.
+
+**Conclusión práctica para el usuario, por ahora:** "Glitch" funciona mejor con clips cortos (hasta
+~1 minuto cada uno aprox.) — para clips más largos, recortarlos antes de unir o usar otra
+transición (todas las demás no tienen este límite, confirmado con el clip de 3 minutos completo
+usando "Barrido").
+
 ## "Glitch": audio perdido/desfasado — arreglado separando video y audio en pasadas distintas (2026-11-10, mismo día)
 
 Después del arreglo de memoria por cantidad de clips, el usuario probó con 5 clips reales (unos

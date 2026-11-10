@@ -805,6 +805,52 @@ export function buildMergeArgs(
   return args
 }
 
+// Tope de memoria de "Glitch" — ver nota larga en `buildGlitchVideoOnlyArgs`.
+// El "960×540 de área" de siempre funciona bien con clips CORTOS (confirmado
+// hasta ~12-15s cada uno), pero el usuario encontró "Out of memory" de
+// nuevo con un clip real de 3 MINUTOS (mezclado con otros dos más cortos,
+// solo 2 uniones) — a esa misma resolución, sin que la cantidad de clips
+// por sí sola explicara la falla (con solo 3 clips, el tope por cantidad de
+// clips no bajaba nada). Confirmado por el propio usuario que sacando el
+// clip largo (quedando con los dos cortos) sí anduvo bien.
+//
+// Causa: el "fondo" de cada transición (`format=yuv420p[tag_base0]` en
+// `buildGlitchTransitionFilter`) NO es solo el medio segundo de la
+// transición — es el clip A COMPLETO hasta ese punto (o, en la 2da/3ra
+// unión de una cadena, todo lo acumulado de las uniones anteriores),
+// encima del cual se apilan 9 "overlay" seguidos (persiana + franjas). Con
+// clips cortos eso son pocos miles de cuadros pasando por esos 9 filtros;
+// con un clip de varios MINUTOS son muchísimos más — el problema no es solo
+// la resolución (que sí ayuda) sino la CANTIDAD DE CUADROS que atraviesan
+// esa cadena, algo que bajar la resolución no arregla del todo. Separarlo
+// de verdad (que cada unión solo toque una ventana chica de cada clip, sin
+// arrastrar el resto) sería el arreglo de raíz, pero significa rehacer
+// bastante de un filtro ya afinado a mano en varias rondas — por ahora se
+// combina duración total + cantidad de uniones en un solo número ("carga")
+// para bajar MÁS la resolución de trabajo cuando hay clips largos de por
+// medio, y si aun así la carga es demasiado alta, se avisa ANTES de
+// intentarlo (en vez de dejar que el usuario espere varios minutos para
+// terminar en un error).
+const GLITCH_BASE_SAFE_AREA = 960 * 540
+// "Carga" de referencia: el caso ya confirmado seguro de 4 clips de ~12s
+// (duración total ~48s) × 3 uniones = 144.
+const GLITCH_BASELINE_LOAD = 144
+const GLITCH_MIN_AREA = 480 * 270
+// Carga del caso real que falló (3 clips, uno de 3 min, total ~362s × 2
+// uniones ≈ 723) — el tope de "rechazar antes de intentar" se puso bien por
+// debajo de eso, con margen, en vez de justo en el límite.
+export const GLITCH_MAX_LOAD = 400
+
+/** "Carga" estimada de un merge con "Glitch" — combina cuántas uniones hay
+ * con cuánto video total pasa por la cadena de 9 "overlay" de cada una (ver
+ * nota de arriba). Más alto = más riesgo de "Out of memory", sin importar
+ * la resolución. */
+export function estimateGlitchLoad(clips: { trimStart: number; trimEnd: number }[]): number {
+  const totalDuration = clips.reduce((sum, c) => sum + (c.trimEnd - c.trimStart), 0)
+  const transitionsCount = Math.max(1, clips.length - 1)
+  return totalDuration * transitionsCount
+}
+
 /**
  * "Glitch" en DOS pasadas separadas (video por un lado, audio por otro,
  * mezclados recién al final) — arreglo a un bug encontrado 2026-11-10: con
@@ -848,17 +894,11 @@ export function buildGlitchVideoOnlyArgs(
   let w = outputW
   let h = outputH
 
-  // Mismo tope de memoria que en `buildMergeArgs` (ver esa función para el
-  // detalle completo) — se repite acá porque esta pasada ahora construye el
-  // video de "Glitch" por su cuenta, sin pasar por `buildMergeArgs`.
-  const BASE_SAFE_AREA = 960 * 540
-  const BASELINE_TRANSITIONS = 3
-  const MIN_AREA = 480 * 270
-  const transitionsCount = Math.max(1, clips.length - 1)
-  let safeArea = BASE_SAFE_AREA
-  if (transitionsCount > BASELINE_TRANSITIONS) {
-    safeArea = Math.max(MIN_AREA, Math.round((BASE_SAFE_AREA * BASELINE_TRANSITIONS) / transitionsCount))
-  }
+  // Mismo tope de memoria que antes vivía en `buildMergeArgs` — se repite
+  // acá porque esta pasada ahora construye el video de "Glitch" por su
+  // cuenta. Ver `estimateGlitchLoad` para el porqué del número que combina
+  // clips y duración total.
+  const safeArea = Math.max(GLITCH_MIN_AREA, Math.round((GLITCH_BASE_SAFE_AREA * GLITCH_BASELINE_LOAD) / Math.max(GLITCH_BASELINE_LOAD, estimateGlitchLoad(clips))))
   const area = w * h
   if (area > safeArea) {
     const scale = Math.sqrt(safeArea / area)

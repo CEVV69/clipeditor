@@ -11,6 +11,8 @@ import {
   buildMergeAudioOnlyArgs,
   buildMuxArgs,
   computeMergeOutputDuration,
+  estimateGlitchLoad,
+  GLITCH_MAX_LOAD,
   type EditSettings,
   type ImageEditSettings,
   type TransitionType,
@@ -322,6 +324,26 @@ export function useFfmpeg() {
       // de "Glitch" competía por recursos con el audio del mismo clip) — ver
       // la nota completa en `buildGlitchVideoOnlyArgs`, en commandBuilder.ts.
       if (transition === 'glitch') {
+        // "Glitch" procesa cada unión arrastrando el clip A COMPLETO hasta
+        // ese punto (no solo la ventana de la transición) por una cadena de
+        // 9 filtros "overlay" — con clips cortos son pocos cuadros, pero con
+        // un clip de varios MINUTOS son muchísimos más, y eso satura la
+        // memoria sin importar cuánto se achique la resolución de trabajo.
+        // Confirmado con un caso real (2026-11-10): 3 clips, uno de 3
+        // minutos, "Out of memory" — sacando ese clip (quedando con los dos
+        // cortos) funcionó bien. En vez de dejar que el usuario espere
+        // varios minutos para terminar en ese mismo error, se avisa ANTES de
+        // intentarlo cuando la combinación de duración total y cantidad de
+        // uniones ya es demasiado alta (ver `estimateGlitchLoad` en
+        // commandBuilder.ts para el número exacto).
+        if (estimateGlitchLoad(mergeClips) > GLITCH_MAX_LOAD) {
+          throw new Error(
+            'Glitch no aguanta bien clips largos (varios minutos) — funciona mejor con clips cortos, de hasta ' +
+              'aprox. 1 minuto cada uno. Recorta el clip más largo antes de unir, o usa otra transición (las demás ' +
+              'no tienen este límite).',
+          )
+        }
+
         const videoOnlyName = 'merged_video.mp4'
         const audioOnlyName = 'merged_audio.m4a'
         cleanupNames.push(videoOnlyName, audioOnlyName, outputName)
