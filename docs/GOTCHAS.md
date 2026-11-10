@@ -38,14 +38,34 @@ evaluar solo si el usuario pide más velocidad" (ver nota más abajo) — ya se 
   `injectManifest.rollupFormat: 'iife'` en `vite.config.ts` — empaqueta todo (incluido
   `workbox-precaching`) en un solo archivo clásico sin `import`, que sí registra bien sin
   necesitar `type: 'module'`.
-- **No se pudo verificar que el multi-hilo realmente se active** (el service worker nunca
-  registra en el panel de pruebas, confirmado otra vez con este intento) — sí se verificó que:
-  el build de producción compila bien, el service worker se sirve con el formato correcto
-  (`iife`, sin `import` sueltos), y que la edición de un solo archivo sigue funcionando normal
-  con el código nuevo (sin el service worker de por medio, en modo desarrollo). La confirmación
-  real de que anda más rápido solo se puede hacer con el usuario probando en producción
-  (cevv69.github.io) — comparar el tiempo de un export igual antes/después, o revisar en las
-  herramientas de desarrollador del navegador si `self.crossOriginIsolated` da `true` ahí.
+- **Actualización — el usuario SÍ probó en producción y encontró un cuelgue real (mismo día):**
+  "Unir videos" con 5 clips de apenas 15s + música + "Glitch" se quedó pegado en 0% de
+  progreso, sin avanzar nunca — peor que antes de este cambio, para un caso mucho más chico y
+  liviano que el de la prueba anterior (5 clips de 1.5 min). Causa real encontrada y confirmada
+  directo (ver técnica más abajo): **el núcleo multi-hilo se cuelga con cualquier
+  `-filter_complex` de varios clips** — no es un problema de "Glitch" en particular (se probó
+  también con `transition: 'none'`, el `concat` más simple posible, y se colgó exactamente
+  igual) ni de la cantidad de clips (se colgó con 2 Y con 5). La edición de un solo archivo
+  (`runEdit`, sin `-filter_complex`, solo `-vf`/`-af` sobre un único `-i`) SÍ funciona perfecto
+  y rápido con el núcleo multi-hilo — confirmado con una prueba aparte. Arreglo: `runMerge`
+  ahora pide el núcleo de un hilo a propósito (`load(false)`, nuevo parámetro `preferMultiThread`
+  en `load()`), igual que siempre funcionó; el resto de las operaciones (`runEdit`,
+  `runImageEdit`, `runExtractFrame`, `runExtractAudio`, todas en la instancia de `App.vue`,
+  aparte de la de `MergeView.vue`) sí usan el núcleo multi-hilo cuando está disponible.
+- **Técnica que permitió encontrar esto rápido, sin esperar otro despliegue:** agregar las
+  mismas cabeceras COOP/COEP directo en `vite.config.ts` → `server.headers` — así el servidor
+  de desarrollo de Vite TAMBIÉN corre "cross-origin isolated" (confirmado con
+  `crossOriginIsolated` en la consola) y se puede probar el núcleo multi-hilo en local, sin
+  depender del service worker (que nunca registra en el panel de pruebas). **Ojo con los
+  puertos repetidos:** la primera vez que se probó esto en el puerto 5174 (ya usado muchas
+  veces antes en esta misma sesión, sin esas cabeceras) `crossOriginIsolated` seguía dando
+  `false` pese a que las cabeceras SÍ llegaban (confirmado con `curl`) — Chrome fija el estado
+  de aislamiento por proceso/origen la primera vez que se visita ese origen en la sesión del
+  navegador, y no lo revisa de nuevo solo por agregar cabeceras después. Cambiar de puerto
+  (origen nuevo) lo resolvió al toque. Esta configuración de `server.headers` se dejó puesta
+  de forma permanente (no es solo para depurar) — así el dev server queda más parecido a
+  producción y un problema así se encuentra en el acto la próxima vez, no después de pedirle
+  al usuario que pruebe un despliegue.
 
 ## "Unir videos" con clips largos/pesados — reportado como "no funciona" (2026-11-09)
 

@@ -58,11 +58,19 @@ export function useFfmpeg() {
     progress.value = Math.min(1, Math.max(0, p))
   })
 
-  async function load() {
+  // "Unir videos" (runMerge) NUNCA pide el núcleo multi-hilo — probado
+  // directo (2026-11-09): con un filtro "-filter_complex" de varios clips
+  // (concat o cualquier transición, el problema no era "Glitch" en
+  // particular) el núcleo multi-hilo se cuelga en seco apenas arranca,
+  // sin avisar error ni seguir avanzando — confirmado con 2 Y con 5 clips,
+  // ambos casos se trabaron igual. La edición de un solo archivo (sin
+  // "-filter_complex" con varios "-i") sí funciona bien y rápido con el
+  // núcleo multi-hilo — se deja así hasta que se entienda la causa real.
+  async function load(preferMultiThread = true) {
     if (loaded.value || loading.value) return
     loading.value = true
     try {
-      if (typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated) {
+      if (preferMultiThread && typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated) {
         try {
           await ffmpeg.load({
             coreURL: await toBlobURL(`${CORE_BASE_MT}/ffmpeg-core.js`, 'text/javascript'),
@@ -243,7 +251,7 @@ export function useFfmpeg() {
     musicVolume: number,
     transition: TransitionType = 'none',
   ): Promise<Blob> {
-    await load()
+    await load(false)
     progress.value = 0
 
     const inputNames: string[] = []

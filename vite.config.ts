@@ -7,8 +7,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 // cross-origin que activan SharedArrayBuffer — necesarias para el núcleo
 // MULTI-HILO de ffmpeg.wasm. GitHub Pages no deja configurar cabeceras
 // propias, así que esta es la única forma de lograrlo. El servidor de
-// desarrollo de Vite no registra service workers del mismo modo, así que en
-// local sigue corriendo en modo single-thread — eso es normal, no un bug.
+// desarrollo (más abajo) agrega las mismas cabeceras directo, sin service
+// worker, para poder probar esto en local.
 export default defineConfig({
   // Se publica en GitHub Pages bajo /clipeditor/, así que todos los assets
   // deben referenciarse con esa base en vez de la raíz del dominio.
@@ -54,5 +54,16 @@ export default defineConfig({
   ],
   optimizeDeps: {
     exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+  },
+  // Mismas cabeceras que agrega el service worker en producción — así el
+  // servidor de desarrollo también corre "cross-origin isolated" y se
+  // puede probar el núcleo multi-hilo en local sin esperar un despliegue
+  // (así se encontró el cuelgue de "Unir videos" documentado en
+  // GOTCHAS.md, 2026-11-09).
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
 })
