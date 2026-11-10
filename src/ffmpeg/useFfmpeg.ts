@@ -261,8 +261,9 @@ export function useFfmpeg() {
     await load()
 
     const inputName = 'rec_in.webm'
-    const outputName = 'rec_out.webm'
+    const outputName = 'rec_out.mp4'
 
+    progress.value = 0
     await ffmpeg.writeFile(inputName, await fetchFile(file))
 
     const args = buildFixContainerArgs(inputName, outputName)
@@ -280,7 +281,7 @@ export function useFfmpeg() {
     await ffmpeg.deleteFile(outputName).catch(() => {})
 
     const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data
-    return new Blob([bytes], { type: 'video/webm' })
+    return new Blob([bytes], { type: 'video/mp4' })
   }
 
   async function runMerge(

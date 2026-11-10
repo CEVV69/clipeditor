@@ -34,6 +34,42 @@ navegador (canvas+audio, 9s): el remux preserva duración/resolución exactas y 
 resultante se reproduce y recorta bien en la app. Falta que el usuario confirme con una
 grabación de pantalla real.
 
+## "Grabar pantalla": se pasó a convertir a .mp4 en vez de solo remuxear el .webm (2026-11-10, mismo día)
+
+El remux simple (`-c copy`) arregló la duración ausente en la cabecera, pero el usuario seguía
+reportando que el video no se reproducía en el recortador (confirmado solo en PC — en su iMac,
+en la misma sesión, sí funcionó perfecto. Navegador/equipo específico aún sin confirmar). Dos
+razones para sospechar que el problema real es más profundo que solo la duración:
+1. Un remux no agrega fotogramas clave nuevos — si el .webm original los trae muy espaciados
+   (típico de video de pantalla, que casi no cambia), seguir en ese mismo contenedor deja el
+   mismo problema de fondo para buscar/recortar cerca del inicio.
+2. vp9/opus en .webm tiene históricamente más bugs de decodificación específicos de
+   navegador/controlador de video que h264/aac en .mp4 (casi universal) — consistente con que
+   funcione en un equipo y no en otro con las mismas condiciones.
+
+**Cambio:** en vez de un remux (`-c copy`), ahora se RECODIFICA a h264/aac en .mp4 (`-preset
+ultrafast`, con `-force_key_frames expr:gte(t,n_forced*1)` para un fotograma clave cada 1
+segundo) — más lento que un simple remux, pero el video de todos modos se vuelve a codificar al
+exportar la edición final, así que no es tiempo perdido. Mismo formato que usa el resto de la
+app.
+
+**Precaución al probar esto:** una primera prueba sintética (canvas con `captureStream(5)` +
+redibujado cada 2s, para simular fotogramas clave espaciados) mostró un desfase real de 2
+segundos entre lo pedido y lo mostrado SOLO en la versión recodificada (el remux simple salía
+bien) — parecía confirmar un bug real en la recodificación. Pero con una animación fluida a 30fps
+(mucho más parecida a una grabación de pantalla real, hecha con `requestAnimationFrame` en vez de
+redibujar cada 2s) el mismo código de recodificación salió CORRECTO, sin desfase — la prueba
+anterior tenía un artefacto propio (framerate de captura muy bajo y desparejo con el intervalo de
+redibujado), no un bug real del arreglo. Lección: al simular video "casi estático" para probar
+algo, usar una animación fluida de verdad (`requestAnimationFrame`), no redibujar cada tanto con
+un framerate de captura bajo — puede generar marcas de tiempo irregulares que no representan un
+video real y llevan a conclusiones falsas.
+
+Verificado (con la animación fluida): la duración y las dimensiones del .mp4 resultante son
+correctas, y buscar en distintos puntos del video (incluido cerca del inicio) cae exacto. Falta
+que el usuario confirme con una nueva grabación de pantalla real, sobre todo en el PC donde
+fallaba.
+
 ## "Grabar pantalla": audio perdía volumen a los 5 segundos, y recortar el inicio no sacaba el silencio (2026-11-10, mismo día)
 
 Con una grabación real de 30s el usuario reportó dos problemas de audio (el video seguía sin
@@ -63,6 +99,13 @@ Sigue sin confirmarse (ni reproducirse por Claude) el problema de que el VIDEO g
 reproduce en el recortador — el arreglo del remux (nota de arriba) no lo solucionó según el
 usuario. Pendiente: pedirle el log de la consola del navegador en el momento exacto en que falla,
 para poder diagnosticarlo con datos reales en vez de seguir adivinando.
+
+## "Extraer audio" ahora deja elegir el nombre del archivo (2026-11-10)
+
+Pedido por el usuario tras probar "Grabar pantalla" para sacar un audio puntual: antes el mp3
+siempre se descargaba como "audio.mp3". Ahora hay un campo "Nombre del archivo" (mismo criterio
+que "Unir videos": sin caracteres que rompan un nombre de archivo, ".mp3" agregado solo si falta,
+"audio" si se deja vacío).
 
 ## "Extraer audio" ahora respeta el recorte de "Cortar" (2026-11-10)
 

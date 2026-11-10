@@ -8,10 +8,12 @@ const props = defineProps<{
   trimStart: number
   trimEnd: number
   duration: number
+  fileName: string
 }>()
 
 defineEmits<{
   (e: 'extract'): void
+  (e: 'update:fileName', value: string): void
 }>()
 
 // Si el usuario ya achicó el recorte en "Cortar" (recortó el inicio o el
@@ -29,6 +31,17 @@ const isTrimmed = computed(() => props.trimStart > 0.05 || props.trimEnd < props
           : 'Saca el audio completo del video como mp3 — no toca el video original.'
       }}
     </p>
+
+    <label class="filename">
+      <span class="section-title">Nombre del archivo</span>
+      <input
+        type="text"
+        placeholder="audio"
+        maxlength="100"
+        :value="fileName"
+        @input="$emit('update:fileName', ($event.target as HTMLInputElement).value)"
+      />
+    </label>
 
     <button type="button" class="extract" :disabled="extracting" @click="$emit('extract')">
       {{ extracting ? `Extrayendo ${Math.round(progress * 100)}%` : 'Extraer audio' }}
@@ -51,6 +64,28 @@ const isTrimmed = computed(() => props.trimStart > 0.05 || props.trimEnd < props
   margin: 0;
   color: var(--text-dim);
   font-size: 0.8rem;
+}
+.filename {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.section-title {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.filename input {
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+.filename input:focus {
+  outline: 1.5px solid var(--accent);
 }
 .extract {
   width: 100%;

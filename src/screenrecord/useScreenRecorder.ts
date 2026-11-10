@@ -27,7 +27,7 @@ export function useScreenRecorder() {
   let recorder: MediaRecorder | null = null
   let timer: number | null = null
   let startedAt = 0
-  const { runFixContainer } = useFfmpeg()
+  const { progress: fixProgress, runFixContainer } = useFfmpeg()
 
   function stopTimer() {
     if (timer !== null) {
@@ -83,20 +83,19 @@ export function useScreenRecorder() {
 
       const rawFile = new File(chunks, 'grabacion-pantalla.webm', { type: mimeType || 'video/webm' })
 
-      // El .webm que entrega "MediaRecorder" no trae la duración real en la
-      // cabecera (el navegador no la sabe de antemano mientras graba) — eso
-      // hace que cualquier <video> que lo cargue después reporte duración
-      // "Infinity" y se rompan tanto la reproducción como el recorte (rango
-      // 0 a infinito). Un remux rápido con ffmpeg (sin recodificar) le
-      // escribe una cabecera con la duración real.
+      // El .webm que entrega "MediaRecorder" trae problemas reales para
+      // editar después (duración ausente en la cabecera, fotogramas clave
+      // muy espaciados que rompen el recorte/reproducción cerca del inicio)
+      // — se convierte a .mp4 (h264/aac) antes de entregarlo. Ver la nota
+      // completa en `buildFixContainerArgs`, en commandBuilder.ts.
       state.value = 'fixing'
       try {
         const fixedBlob = await runFixContainer(rawFile)
-        resultFile.value = new File([fixedBlob], 'grabacion-pantalla.webm', { type: fixedBlob.type })
+        resultFile.value = new File([fixedBlob], 'grabacion-pantalla.mp4', { type: fixedBlob.type })
       } catch {
-        // Si el remux falla por algún motivo, mejor entregar el archivo
-        // crudo (puede que igual se reproduzca bien en algunos casos) que
-        // dejar al usuario sin nada.
+        // Si la conversión falla por algún motivo, mejor entregar el
+        // archivo crudo (puede que igual se reproduzca bien en algunos
+        // casos) que dejar al usuario sin nada.
         resultFile.value = rawFile
       }
       state.value = 'done'
@@ -136,5 +135,5 @@ export function useScreenRecorder() {
     resultFile.value = null
   }
 
-  return { state, errorMessage, elapsedSeconds, resultFile, startRecording, stopRecording, reset }
+  return { state, errorMessage, elapsedSeconds, resultFile, fixProgress, startRecording, stopRecording, reset }
 }

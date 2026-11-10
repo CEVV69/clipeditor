@@ -375,16 +375,45 @@ export function buildAudioExtractArgs(
   return args
 }
 
-/** Re-muxea (sin recodificar) un video en un contenedor nuevo — arregla el
- * caso de un archivo grabado con `MediaRecorder` (como "Grabar pantalla"),
- * cuyo .webm no trae la duración real en la cabecera (el navegador no la
- * sabe de antemano mientras graba) y por eso `video.duration` da `Infinity`
- * en cualquier <video> que lo cargue — rompiendo el recorte (rango 0 a
- * infinito) y la reproducción. Un remux simple (sin tocar video/audio) le
- * escribe una cabecera con la duración real, calculada a partir de los
- * propios paquetes. */
+/** Convierte a .mp4 (h264/aac) el .webm que entrega `MediaRecorder` (como
+ * "Grabar pantalla"), en vez de solo re-muxearlo — dos problemas reales que
+ * un simple "-c copy" no arreglaba del todo (2026-11-10):
+ * 1. El .webm no trae la duración real en la cabecera (el navegador no la
+ *    sabe de antemano mientras graba), así que `video.duration` puede dar
+ *    `Infinity` en cualquier <video> que lo cargue — rompiendo el recorte
+ *    (rango 0 a infinito) y la reproducción. Un simple remux SÍ arregla
+ *    esto (recalcula la duración de los propios paquetes), pero no alcanzó
+ *    para el problema de abajo.
+ * 2. Un video de pantalla cambia poco de un cuadro a otro, así que el
+ *    codificador de grabación mete fotogramas clave muy espaciados (a veces
+ *    uno solo al principio) — buscar/recortar cerca del INICIO puede caer
+ *    siempre cerca de ese único fotograma clave en vez de donde se pidió
+ *    (reportado por el usuario: la línea de tiempo no avanzaba al recortar
+ *    el inicio, aunque sí al recortar el final). Un remux no agrega
+ *    fotogramas clave nuevos — solo una recodificación sí puede.
+ * Por eso esto recodifica (más lento que un remux, pero el video ya va a
+ * recodificarse de nuevo al exportar la edición final igual) a h264/aac en
+ * .mp4 — mismo formato que usa el resto de la app — con un fotograma clave
+ * forzado cada 1 segundo, para que buscar/recortar funcione parejo en todo
+ * el video. De paso, h264/aac tiene mejor soporte de reproducción entre
+ * navegadores/sistemas que vp9/opus en .webm (reportado: una grabación no
+ * se reproducía en un PC pero sí en un Mac, con las mismas condiciones). */
 export function buildFixContainerArgs(inputName: string, outputName: string): string[] {
-  return ['-i', inputName, '-c', 'copy', outputName]
+  return [
+    '-i',
+    inputName,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-pix_fmt',
+    'yuv420p',
+    '-force_key_frames',
+    'expr:gte(t,n_forced*1)',
+    '-c:a',
+    'aac',
+    outputName,
+  ]
 }
 
 export interface MergeClipInput {

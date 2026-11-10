@@ -6,7 +6,7 @@ const emit = defineEmits<{ (e: 'selected', file: File): void }>()
 
 const supportsCapture = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia
 
-const { state, errorMessage, elapsedSeconds, resultFile, startRecording, stopRecording, reset } =
+const { state, errorMessage, elapsedSeconds, resultFile, fixProgress, startRecording, stopRecording, reset } =
   useScreenRecorder()
 
 function formatTime(seconds: number): string {
@@ -54,7 +54,7 @@ watch(resultFile, (file) => {
 
       <div v-if="state === 'fixing'" class="recording">
         <span class="dot" />
-        <span>Preparando video…</span>
+        <span>Preparando video… {{ Math.round(fixProgress * 100) }}%</span>
       </div>
     </template>
   </div>

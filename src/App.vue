@@ -75,6 +75,7 @@ const frameErrorMessage = ref('')
 
 const extractingAudio = ref(false)
 const audioErrorMessage = ref('')
+const audioFileName = ref('')
 
 const resultUrl = ref('')
 const resultMediaType = ref<'video' | 'image' | 'audio'>('video')
@@ -157,6 +158,7 @@ async function resetForNewFile(selected: File) {
   frameErrorMessage.value = ''
   extractingAudio.value = false
   audioErrorMessage.value = ''
+  audioFileName.value = ''
   resultUrl.value = ''
   errorMessage.value = ''
   activeTool.value = mediaType.value === 'image' ? 'logo' : 'trim'
@@ -346,7 +348,13 @@ const exportLabel = computed(() => {
 const exportDisabled = computed(() => exporting.value || loading.value)
 
 const resultFileName = computed(() => {
-  if (resultMediaType.value === 'audio') return 'audio.mp3'
+  if (resultMediaType.value === 'audio') {
+    // Sin caracteres que rompan un nombre de archivo, y siempre con ".mp3"
+    // al final (el usuario no tiene por qué escribir la extensión) — mismo
+    // criterio que "Unir videos" para su nombre de archivo.
+    const base = audioFileName.value.trim().replace(/[\\/:*?"<>|]/g, '') || 'audio'
+    return base.toLowerCase().endsWith('.mp3') ? base : `${base}.mp3`
+  }
   if (resultMediaType.value !== 'image') return 'video-editado.mp4'
   if (activeTool.value === 'frame' || mediaType.value === 'video') return 'fotograma.png'
   const name = file.value?.name ?? ''
@@ -474,6 +482,7 @@ const resultFileName = computed(() => {
 
       <AudioPanel
         v-else
+        v-model:file-name="audioFileName"
         :extracting="extractingAudio"
         :progress="progress"
         :error-message="audioErrorMessage"
