@@ -1,6 +1,7 @@
 import { ref, shallowRef } from 'vue'
+import { useFfmpeg } from '../ffmpeg/useFfmpeg'
 
-export type ScreenRecordState = 'idle' | 'recording' | 'done' | 'error'
+export type ScreenRecordState = 'idle' | 'recording' | 'fixing' | 'done' | 'error'
 
 // Independiente de "Importar de YouTube" (`useYoutubeImport.ts`) a propósito
 // — ese otro está hecho a la medida de un reproductor embebido (play/pause,
@@ -26,6 +27,7 @@ export function useScreenRecorder() {
   let recorder: MediaRecorder | null = null
   let timer: number | null = null
   let startedAt = 0
+  const { runFixContainer } = useFfmpeg()
 
   function stopTimer() {
     if (timer !== null) {
@@ -60,19 +62,36 @@ export function useScreenRecorder() {
       if (ev.data.size > 0) chunks.push(ev.data)
     }
 
-    mr.onstop = () => {
+    mr.onstop = async () => {
       stopTimer()
       stream?.getTracks().forEach((t) => t.stop())
       stream = null
 
-      if (chunks.length > 0) {
-        const blob = new Blob(chunks, { type: mimeType || 'video/webm' })
-        resultFile.value = new File([blob], 'grabacion-pantalla.webm', { type: blob.type })
-        state.value = 'done'
-      } else {
+      if (chunks.length === 0) {
         errorMessage.value = 'No se alcanzó a grabar nada, intenta de nuevo.'
         state.value = 'error'
+        return
       }
+
+      const rawFile = new File(chunks, 'grabacion-pantalla.webm', { type: mimeType || 'video/webm' })
+
+      // El .webm que entrega "MediaRecorder" no trae la duración real en la
+      // cabecera (el navegador no la sabe de antemano mientras graba) — eso
+      // hace que cualquier <video> que lo cargue después reporte duración
+      // "Infinity" y se rompan tanto la reproducción como el recorte (rango
+      // 0 a infinito). Un remux rápido con ffmpeg (sin recodificar) le
+      // escribe una cabecera con la duración real.
+      state.value = 'fixing'
+      try {
+        const fixedBlob = await runFixContainer(rawFile)
+        resultFile.value = new File([fixedBlob], 'grabacion-pantalla.webm', { type: fixedBlob.type })
+      } catch {
+        // Si el remux falla por algún motivo, mejor entregar el archivo
+        // crudo (puede que igual se reproduzca bien en algunos casos) que
+        // dejar al usuario sin nada.
+        resultFile.value = rawFile
+      }
+      state.value = 'done'
     }
 
     recorder = mr

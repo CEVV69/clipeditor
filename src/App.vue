@@ -317,14 +317,16 @@ async function onCaptureFrame() {
   }
 }
 
-// Igual que Capturar fotograma: acción aparte de "Ejecutar edición", saca
-// el audio del archivo original tal cual está, sin aplicar recorte/logo/etc.
+// Igual que Capturar fotograma: acción aparte de "Ejecutar edición" (no
+// aplica logo/proporción/rotación/velocidad) — pero SÍ respeta el tramo ya
+// elegido en "Cortar" (pedido 2026-11-10: antes sacaba siempre el archivo
+// completo, sin importar el recorte).
 async function onExtractAudio() {
   if (!file.value) return
   audioErrorMessage.value = ''
   extractingAudio.value = true
   try {
-    const blob = await runExtractAudio(file.value)
+    const blob = await runExtractAudio(file.value, trimStart.value, trimEnd.value)
     if (resultUrl.value) URL.revokeObjectURL(resultUrl.value)
     resultUrl.value = URL.createObjectURL(blob)
     resultMediaType.value = 'audio'
@@ -475,6 +477,9 @@ const resultFileName = computed(() => {
         :extracting="extractingAudio"
         :progress="progress"
         :error-message="audioErrorMessage"
+        :trim-start="trimStart"
+        :trim-end="trimEnd"
+        :duration="duration"
         @extract="onExtractAudio"
       />
 

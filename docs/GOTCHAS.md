@@ -3,6 +3,48 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Grabar pantalla": el video grabado no se reproducía ni mostraba el recorte (2026-11-10)
+
+Después de confirmar que la captura de pantalla+audio funcionaba, el usuario reportó que el
+video grabado se posicionaba bien en el editor pero no se reproducía, y el recorte ("Cortar") no
+mostraba avance al usar los botones +/-. Causa: el .webm que entrega `MediaRecorder` no trae la
+duración real escrita en su cabecera (el navegador no la sabe de antemano mientras graba, y
+muchas veces no la calcula después) — cualquier `<video>` que lo carga puede reportar
+`duration: Infinity`. Eso rompe el recorte en cadena: `onDuration` en `App.vue` pone
+`trimEnd.value = Infinity`, y en `TrimPanel.vue` el `<input type="range" max="Infinity">` queda
+inválido y `startPct`/`endPct` (`valor/duration*100`) dan siempre 0 — de ahí que no se viera
+ningún avance.
+
+Un intento de reproducir el bug a propósito con un .webm sintético (canvas + tono de audio,
+grabado con `MediaRecorder` igual que la app real) en el propio navegador de Claude NO mostró el
+problema (duración correcta, reproducción normal) — probablemente porque Chrome a veces SÍ logra
+calcular la duración después de grabar y a veces no, dependiendo del contenido/duración real de
+la captura (es un bug conocido, documentado hace años en Chromium, pero inconsistente). No se
+pudo confirmar el mecanismo exacto con certeza total, pero la causa (duración ausente en el
+.webm de `MediaRecorder`) es la explicación más consistente con AMBOS síntomas reportados
+(reproducción Y recorte rotos a la vez) y es un problema real y bien documentado de este formato.
+
+**Arreglo:** justo después de grabar, `useScreenRecorder.ts` pasa el .webm por un remux rápido
+con ffmpeg (`buildFixContainerArgs`: `-c copy`, sin recodificar — rápido y sin pérdida de
+calidad) antes de entregarlo al editor. Un remux siempre recalcula la duración real a partir de
+los paquetes ya grabados, así que la cabecera queda con el valor correcto sin importar si el
+navegador la calculó bien o no. Si el remux fallara por algún motivo, se entrega igual el archivo
+crudo (mejor eso que dejar al usuario sin nada). Verificado con un .webm real grabado en el
+navegador (canvas+audio, 9s): el remux preserva duración/resolución exactas y el archivo
+resultante se reproduce y recorta bien en la app. Falta que el usuario confirme con una
+grabación de pantalla real.
+
+## "Extraer audio" ahora respeta el recorte de "Cortar" (2026-11-10)
+
+Pedido por el usuario tras usar "Grabar pantalla" para un audio puntual: antes "Extraer audio"
+sacaba SIEMPRE el archivo completo, sin mirar el tramo ya elegido en "Cortar" (decisión explícita
+de una sesión anterior, para mantenerlo simple). Ahora, si el usuario ya recortó el inicio o el
+fin en "Cortar", "Extraer audio" saca solo ese tramo — sin agregar ningún control nuevo a la UI
+(reutiliza el recorte que ya existe en la otra pestaña). El texto de ayuda cambia solo para
+avisar de esto cuando corresponde. Verificado: con el recorte sin tocar, sigue sacando el audio
+completo igual que antes (mismos argumentos de ffmpeg); con un tramo de 2s a 5s elegido, el mp3
+resultante mide exactamente 3s.
+
 ## "Glitch": límite real con clips de varios MINUTOS — se avisa antes de intentarlo (2026-11-10, mismo día)
 
 El usuario probó unir 3 clips reales (66.82s + 181.16s/3min + 113.62s, con música) con "Glitch" en

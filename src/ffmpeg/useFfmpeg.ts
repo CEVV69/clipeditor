@@ -6,6 +6,7 @@ import {
   buildImageFfmpegArgs,
   buildFrameExtractArgs,
   buildAudioExtractArgs,
+  buildFixContainerArgs,
   buildMergeArgs,
   buildGlitchVideoOnlyArgs,
   buildMergeAudioOnlyArgs,
@@ -223,7 +224,7 @@ export function useFfmpeg() {
     return new Blob([bytes], { type: 'image/png' })
   }
 
-  async function runExtractAudio(file: File): Promise<Blob> {
+  async function runExtractAudio(file: File, trimStart = 0, trimEnd: number | null = null): Promise<Blob> {
     await load()
 
     const extension = file.name.includes('.') ? file.name.split('.').pop() : 'mp4'
@@ -233,7 +234,7 @@ export function useFfmpeg() {
     progress.value = 0
     await ffmpeg.writeFile(inputName, await fetchFile(file))
 
-    const args = buildAudioExtractArgs(inputName, outputName)
+    const args = buildAudioExtractArgs(inputName, outputName, trimStart, trimEnd)
     const exitCode = await ffmpeg.exec(args)
 
     if (exitCode !== 0) {
@@ -252,6 +253,34 @@ export function useFfmpeg() {
 
     const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data
     return new Blob([bytes], { type: 'audio/mpeg' })
+  }
+
+  // Usado por "Grabar pantalla" (ver `useScreenRecorder.ts`) — ver la nota
+  // completa en `buildFixContainerArgs`, en commandBuilder.ts.
+  async function runFixContainer(file: File): Promise<Blob> {
+    await load()
+
+    const inputName = 'rec_in.webm'
+    const outputName = 'rec_out.webm'
+
+    await ffmpeg.writeFile(inputName, await fetchFile(file))
+
+    const args = buildFixContainerArgs(inputName, outputName)
+    const exitCode = await ffmpeg.exec(args)
+
+    if (exitCode !== 0) {
+      await ffmpeg.deleteFile(inputName).catch(() => {})
+      await ffmpeg.deleteFile(outputName).catch(() => {})
+      const lastLines = logLines.value.slice(-60).join('\n')
+      throw new Error(`No se pudo procesar la grabación (código ${exitCode}): ${lastLines}`)
+    }
+
+    const data = await ffmpeg.readFile(outputName)
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+
+    const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data
+    return new Blob([bytes], { type: 'video/webm' })
   }
 
   async function runMerge(
@@ -412,5 +441,17 @@ export function useFfmpeg() {
     return new Blob([bytes], { type: 'video/mp4' })
   }
 
-  return { loaded, loading, progress, logLines, load, runEdit, runImageEdit, runExtractFrame, runExtractAudio, runMerge }
+  return {
+    loaded,
+    loading,
+    progress,
+    logLines,
+    load,
+    runEdit,
+    runImageEdit,
+    runExtractFrame,
+    runExtractAudio,
+    runFixContainer,
+    runMerge,
+  }
 }

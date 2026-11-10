@@ -348,8 +348,32 @@ export function buildFrameExtractArgs(inputName: string, outputName: string, tim
  * reusar después en cualquier otra app o editor. "-q:a 2" es calidad VBR
  * alta (casi transparente) sin inflar el tamaño como un bitrate fijo alto.
  */
-export function buildAudioExtractArgs(inputName: string, outputName: string): string[] {
-  return ['-i', inputName, '-vn', '-c:a', 'libmp3lame', '-q:a', '2', outputName]
+// "trimStart"/"trimEnd" son el mismo tramo que ya elige el usuario en
+// "Cortar" (pedido 2026-11-10: antes "Extraer audio" sacaba SIEMPRE el
+// archivo completo) — null/0 se comportan como antes (todo el audio).
+export function buildAudioExtractArgs(
+  inputName: string,
+  outputName: string,
+  trimStart = 0,
+  trimEnd: number | null = null,
+): string[] {
+  const args: string[] = []
+  if (trimStart > 0) args.push('-ss', trimStart.toFixed(3))
+  if (trimEnd !== null) args.push('-to', trimEnd.toFixed(3))
+  args.push('-i', inputName, '-vn', '-c:a', 'libmp3lame', '-q:a', '2', outputName)
+  return args
+}
+
+/** Re-muxea (sin recodificar) un video en un contenedor nuevo — arregla el
+ * caso de un archivo grabado con `MediaRecorder` (como "Grabar pantalla"),
+ * cuyo .webm no trae la duración real en la cabecera (el navegador no la
+ * sabe de antemano mientras graba) y por eso `video.duration` da `Infinity`
+ * en cualquier <video> que lo cargue — rompiendo el recorte (rango 0 a
+ * infinito) y la reproducción. Un remux simple (sin tocar video/audio) le
+ * escribe una cabecera con la duración real, calculada a partir de los
+ * propios paquetes. */
+export function buildFixContainerArgs(inputName: string, outputName: string): string[] {
+  return ['-i', inputName, '-c', 'copy', outputName]
 }
 
 export interface MergeClipInput {

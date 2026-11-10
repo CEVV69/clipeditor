@@ -51,6 +51,11 @@ watch(resultFile, (file) => {
         <span>Grabando… {{ formatTime(elapsedSeconds) }}</span>
         <button type="button" class="pill ghost" @click="onStop">Detener y usar</button>
       </div>
+
+      <div v-if="state === 'fixing'" class="recording">
+        <span class="dot" />
+        <span>Preparando video…</span>
+      </div>
     </template>
   </div>
 </template>
