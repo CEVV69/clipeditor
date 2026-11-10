@@ -41,10 +41,21 @@ compartida entre pestañas ni límite de tamaño de archivo subido, pero procesa
 calidad real puede tardar aproximadamente 1x-1.5x su propia duración, o bastante más con
 contenido muy complejo (mucho detalle/movimiento). Con 5 clips de 1.5 min (7.5 min en total),
 el tiempo de espera real puede ser de varios minutos — ahora al menos el progreso real se lo
-hace saber al usuario en vez de parecer colgada. No se volvió a probar el caso completo (5
-clips/1.5 min reales) tras el arreglo por tiempo — sí se confirmó con 2 clips de 25s (progreso
-fiel de punta a punta, 57.6s para codificar ~49s de resultado, bitrate de salida ~8.3 Mbps,
-dentro del tope nuevo). Falta confirmación del usuario con sus videos reales.
+hace saber al usuario en vez de parecer colgada.
+
+**Actualización (mismo día, tras reportar el usuario que el error real era un mensaje en rojo
+"no se pudo procesar", no la app colgada):** se corrió el caso completo (5 clips de 90s/1080p
+reales + música, mismo contenido complejo de prueba) HASTA EL FINAL con los arreglos ya puestos
+— terminó bien, sin error, en ~8.8 minutos (530s), salida de 453MB a ~8 Mbps (dentro del tope
+nuevo). Antes del arreglo, a los 38% de avance el archivo ya pesaba 272MB a ~16 Mbps y seguía
+creciendo — de haber seguido a ese ritmo habría terminado cerca de 900MB, el doble de memoria
+viva en el navegador en el peor momento. No se pudo reproducir el mensaje en rojo exacto que
+vio el usuario (la prueba sin el arreglo se cortó antes de llegar al final, por tiempo) — la
+hipótesis más probable es que esa memoria casi al doble haya llegado a tope (`Aborted()`/out of
+memory de WASM, que el `catch` de `runMerge` muestra como el mensaje genérico de error) pero
+queda sin confirmar al 100%. Si el usuario vuelve a ver un error rojo después de este arreglo,
+pedirle el texto exacto (o una captura) — es la forma más rápida de descartar o confirmar esta
+hipótesis.
 
 ## Transición "Glitch" en "Unir videos" (2026-11-09)
 
@@ -243,8 +254,12 @@ opcional, con volumen ajustable y loop automático si es más corta que el resul
   solo un poco más pesado el archivo final. Siguiente palanca de velocidad: el core multi-hilo
   `@ffmpeg/core-mt`, que exige cross-origin-isolation (COOP/COEP) — GitHub Pages no deja
   configurar esas cabeceras directo, haría falta un service worker tipo "coi-serviceworker",
-  con riesgo real de chocar con el SW de la PWA. No implementado — evaluar solo si el usuario
-  pide más velocidad.
+  con riesgo real de chocar con el SW de la PWA. **El usuario lo pidió explícitamente
+  (2026-11-09, "¿por qué no poner al menos 2 núcleos?")** tras ver que "Unir videos" con 5
+  clips reales tardó ~9 minutos — pendiente de implementar, pero no se tocó todavía porque es
+  un cambio de infraestructura real (no solo de ffmpeg) con riesgo genuino de romper el modo
+  offline/instalable si se hace mal, y el service worker no se puede probar en el panel de
+  pruebas (solo en producción) — avisar al usuario de ese riesgo antes de implementarlo.
 - `buildFrameExtractArgs` ("Capturar fotograma") no aplica ningún filtro — solo
   `-ss <t> -i input -frames:v 1 output.png`. Si el video de origen tiene letterboxing/
   pillarboxing incrustado en los píxeles, el fotograma capturado hereda esas franjas porque son
