@@ -3,6 +3,46 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## Transición "Glitch" — DESHABILITADA, se cuelga en ffmpeg.wasm (2026-11-09)
+
+Después de arreglar el cuelgue del núcleo multi-hilo (nota más abajo), el usuario probó de
+nuevo con sus 5 videos reales (3 de 15s, uno de 10s, uno de 4s) + música + "Glitch": avanzó a
+3% y mostró "No se pudo unir los videos" (ya no colgada — un error real esta vez). El usuario
+mismo probó las demás transiciones con los mismos archivos y SÍ funcionaron — dato clave que
+aisló el problema a "Glitch" específicamente, no al cambio de núcleos.
+
+**Investigación (reproducido directo, sin esperar que el usuario pruebe cada intento):**
+1. Con clips sintéticos reales (no los de color sólido de siempre) y `transition: 'glitch'`,
+   el export se cuelga en 0% para siempre — confirmado con 2, 3 y 5 clips, con y sin música,
+   con duraciones iguales y distintas. Nunca aparece ni un solo "frame=" en el log — se traba
+   ANTES de procesar el primer fotograma, en la etapa de armado del filtro.
+2. **El mismo filtro `-filter_complex`, exportado tal cual con `buildMergeArgs` y corrido en
+   ffmpeg real de esta Mac (no ffmpeg.wasm), funcionó perfecto e instantáneo** (0.46s para 3
+   clips de 3s, salida correcta de 7.8s) — descarta que sea un error de lógica en el filtro:
+   es ffmpeg.wasm específicamente el que no lo puede procesar.
+3. Se probó reducir el tamaño del filtro (`BAR_COUNT` 5→3, `K` de hasta 24→6, hasta un extremo
+   de `BAR_COUNT=1`/`K=1`, el filtro más chico posible con 2 clips) — se cuelga exactamente
+   igual. **Esto descarta que sea un problema de tamaño/cantidad de piezas del filtro** — algo
+   más específico de la combinación `split`+`crop`+`overlay` con `enable` dinámico +
+   `concat` no es compatible con el `ffmpeg.wasm` de un solo hilo usado acá, sea cual sea el
+   motivo exacto (no identificado — necesitaría ir probando qué filtro individual es el que
+   rompe, sacando piezas de a una, cosa que no se alcanzó a hacer esta sesión).
+4. Gotcha propio durante la investigación: al achicar `BAR_COUNT` de 5 a un número menor, los
+   loops de las franjas de fase 1/fase 2 seguían con el rango fijo `[4, 3, 2, 1, 0]` (asumiendo
+   siempre 5 franjas) — con `BAR_COUNT` más chico, `nextA()`/`nextB()` se quedaban sin copias
+   que entregar a mitad de loop y devolvían `undefined`, generando un filtro con la etiqueta
+   literal `undefined` adentro ("Stream specifier 'undefined'"). Arreglado a
+   `for (let i = BAR_COUNT - 1; i >= 0; i--)` — si se vuelve a tocar `BAR_COUNT`, revisar que
+   los loops lo usen en vez de un rango fijo.
+
+**Decisión:** se sacó "Glitch" del selector en `MergeView.vue` (el código de
+`buildGlitchTransitionFilter` queda intacto en `commandBuilder.ts` por si se retoma más
+adelante) — mejor no ofrecerla que ofrecer algo que se cuelga sin aviso. Si se vuelve a
+intentar: la pista más prometedora es simplificar DE VERDAD la construcción (quizás evitando
+`split` + `enable` dinámico combinados, o probando una técnica totalmente distinta para el
+efecto) y probar cada pieza por separado en ffmpeg.wasm (no solo en ffmpeg nativo) antes de
+armar el filtro completo.
+
 ## Núcleo multi-hilo de ffmpeg.wasm — implementado (2026-11-09)
 
 Pedido explícito del usuario tras ver que "Unir videos" con sus 5 clips tardaba varios minutos
@@ -66,6 +106,9 @@ evaluar solo si el usuario pide más velocidad" (ver nota más abajo) — ya se 
   de forma permanente (no es solo para depurar) — así el dev server queda más parecido a
   producción y un problema así se encuentra en el acto la próxima vez, no después de pedirle
   al usuario que pruebe un despliegue.
+- **Confirmado por el usuario en dispositivo real:** con "Unir videos" ya forzando el núcleo de
+  un hilo (arreglo de arriba), las 7 transiciones que quedan (todas menos "Glitch", ver nota
+  aparte) funcionan bien con sus propios videos reales — este arreglo quedó validado.
 
 ## "Unir videos" con clips largos/pesados — reportado como "no funciona" (2026-11-09)
 

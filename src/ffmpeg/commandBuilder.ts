@@ -446,7 +446,13 @@ function buildGlitchTransitionFilter(
   const half = td / 2
   const BAR_W = Math.max(2, Math.round(w * 0.045))
   const LAG = 0.03
-  const BAR_COUNT = 5 // 1 principal (i=0, la más ancha) + 4 que la siguen, angostándose
+  // Antes era 5 (+ hasta 24 franjas para el fondo) — el navegador se
+  // colgaba en seco con un filtro tan grande (confirmado 2026-11-09: el
+  // MISMO filtro, probado tal cual en ffmpeg de verdad fuera del
+  // navegador, anduvo perfecto e instantáneo — el problema es solo de
+  // ffmpeg.wasm con filtros de cientos de piezas). 3 alcanza para que se
+  // note el efecto sin ese riesgo.
+  const BAR_COUNT = 3 // 1 principal (i=0, la más ancha) + 2 que la siguen, angostándose
 
   const barWidth = (i: number) => (i === 0 ? BAR_W : Math.max(2, Math.round(BAR_W * (1 - i / BAR_COUNT))))
   const barOpacity = (i: number) => (i === 0 ? 1 : Math.round(0.55 * (1 - i / BAR_COUNT) * 1000) / 1000)
@@ -463,7 +469,9 @@ function buildGlitchTransitionFilter(
     return `${w}-((${local})/${half})*${w}`
   }
 
-  const K = Math.min(24, Math.max(12, Math.round(w / 50)))
+  // Mismo motivo que BAR_COUNT: un número fijo chico en vez de una persiana
+  // de hasta 24 franjas (ver nota arriba).
+  const K = 6
 
   const parts: string[] = []
   const tag = `gl${idx}`
@@ -503,7 +511,7 @@ function buildGlitchTransitionFilter(
   }
 
   // Franjas, fase 1: contenido del clip B, fondo del clip A sin tocar.
-  for (const i of [4, 3, 2, 1, 0]) {
+  for (let i = BAR_COUNT - 1; i >= 0; i--) {
     const bw = barWidth(i)
     const xExpr = clipExpr(`${posPhase1(i)}-${bw}/2`, 0, w - bw)
     const cropLabel = `${tag}p1${i}c`
@@ -522,7 +530,7 @@ function buildGlitchTransitionFilter(
   }
 
   // Franjas, fase 2: contenido del clip A, encima del fondo ya revelado.
-  for (const i of [4, 3, 2, 1, 0]) {
+  for (let i = BAR_COUNT - 1; i >= 0; i--) {
     const bw = barWidth(i)
     const xExpr = clipExpr(`${posPhase2(i)}-${bw}/2`, 0, w - bw)
     const cropLabel = `${tag}p2${i}c`
