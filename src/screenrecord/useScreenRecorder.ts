@@ -44,7 +44,15 @@ export function useScreenRecorder() {
     try {
       capturedStream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: { max: 30 } },
-        audio: true,
+        // Sin esto, Chrome aplica de regalo el procesamiento pensado para un
+        // micrófono (cancelación de eco, control automático de ganancia,
+        // reducción de ruido) al audio de pantalla/pestaña capturado —
+        // reportado por el usuario como "se escucha bien 5 segundos y
+        // después baja de volumen sin razón": es el control automático de
+        // ganancia "calibrándose" sobre un audio que no es una voz de
+        // micrófono. Pidiendo estas tres en `false` se graba el audio tal
+        // cual, sin ese procesamiento de más.
+        audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false },
       })
     } catch {
       // El usuario cerró el diálogo del sistema sin elegir nada, o lo

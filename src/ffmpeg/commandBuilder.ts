@@ -357,10 +357,21 @@ export function buildAudioExtractArgs(
   trimStart = 0,
   trimEnd: number | null = null,
 ): string[] {
-  const args: string[] = []
+  const args: string[] = ['-i', inputName]
+  // "-ss"/"-to" ANTES de "-i" (como en el resto de la app) hacen un salto
+  // rápido al fotograma clave más cercano — con un video de pantalla, que
+  // suele tener fotogramas clave muy espaciados (la imagen casi no cambia),
+  // ese salto puede caer MUY antes de lo pedido, dejando igual el silencio
+  // del inicio aunque se recorte más y más (reportado por el usuario,
+  // 2026-11-10: recortar el inicio no sacaba el segundo de silencio). Acá
+  // sí importa caer exacto (es audio solamente, no pesa tanto decodificar
+  // de más) — por eso "-ss" va DESPUÉS de "-i" (salto preciso, cuadro por
+  // cuadro) solo en esta función. "-t" (duración) en vez de "-to" para que
+  // no dependa de si cuenta desde el inicio real del archivo o desde donde
+  // ya se saltó.
   if (trimStart > 0) args.push('-ss', trimStart.toFixed(3))
-  if (trimEnd !== null) args.push('-to', trimEnd.toFixed(3))
-  args.push('-i', inputName, '-vn', '-c:a', 'libmp3lame', '-q:a', '2', outputName)
+  if (trimEnd !== null) args.push('-t', Math.max(0, trimEnd - trimStart).toFixed(3))
+  args.push('-vn', '-c:a', 'libmp3lame', '-q:a', '2', outputName)
   return args
 }
 

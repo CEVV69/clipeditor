@@ -34,6 +34,36 @@ navegador (canvas+audio, 9s): el remux preserva duración/resolución exactas y 
 resultante se reproduce y recorta bien en la app. Falta que el usuario confirme con una
 grabación de pantalla real.
 
+## "Grabar pantalla": audio perdía volumen a los 5 segundos, y recortar el inicio no sacaba el silencio (2026-11-10, mismo día)
+
+Con una grabación real de 30s el usuario reportó dos problemas de audio (el video seguía sin
+reproducirse, ver nota de arriba — esto es aparte):
+
+1. El audio se escuchaba bien 5 segundos y después bajaba de volumen sin razón, hasta el final.
+   Causa: `getDisplayMedia({ audio: true })` no pide nada específico, así que Chrome aplica el
+   procesamiento de audio pensado para un MICRÓFONO (cancelación de eco, control automático de
+   ganancia, reducción de ruido) también al audio de pantalla/pestaña capturado — el control
+   automático de ganancia "calibrándose" sobre audio que no es una voz de micrófono explica
+   justo ese patrón (bien un rato, después se ajusta solo y baja). Arreglo: pedir
+   `audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false }`
+   explícitamente en `useScreenRecorder.ts`, para grabar el audio tal cual sin ese procesamiento
+   de más.
+2. Por más que recortara el inicio en "Cortar", el mp3 de "Extraer audio" seguía empezando con
+   ~1s de silencio. Causa: `-ss`/`-to` ANTES de "-i" (como se usa en el resto de la app) hacen un
+   salto RÁPIDO al fotograma clave más cercano — un video de pantalla suele tener fotogramas
+   clave muy espaciados (la imagen casi no cambia), así que ese salto puede caer mucho antes de
+   lo pedido, sin importar cuánto se recorte. Arreglo: en `buildAudioExtractArgs` específicamente
+   (es audio nomás, no pesa tanto decodificar de más), `-ss` ahora va DESPUÉS de `-i` (salto
+   preciso, cuadro por cuadro) con `-t` (duración) en vez de `-to`, para no depender de fotogramas
+   clave. Verificado con un .webm de prueba con un tono distinto cada 2s: recortando desde el
+   segundo 3, el audio extraído ahora empieza exacto en el tono que corresponde a ese segundo, sin
+   arrastrar nada de antes.
+
+Sigue sin confirmarse (ni reproducirse por Claude) el problema de que el VIDEO grabado no se
+reproduce en el recortador — el arreglo del remux (nota de arriba) no lo solucionó según el
+usuario. Pendiente: pedirle el log de la consola del navegador en el momento exacto en que falla,
+para poder diagnosticarlo con datos reales en vez de seguir adivinando.
+
 ## "Extraer audio" ahora respeta el recorte de "Cortar" (2026-11-10)
 
 Pedido por el usuario tras usar "Grabar pantalla" para un audio puntual: antes "Extraer audio"
