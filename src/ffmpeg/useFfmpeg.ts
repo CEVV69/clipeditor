@@ -7,6 +7,9 @@ import {
   buildFrameExtractArgs,
   buildAudioExtractArgs,
   buildMergeArgs,
+  buildGlitchVideoOnlyArgs,
+  buildMergeAudioOnlyArgs,
+  buildMuxArgs,
   computeMergeOutputDuration,
   type EditSettings,
   type ImageEditSettings,
@@ -269,22 +272,13 @@ export function useFfmpeg() {
       await ffmpeg.writeFile(musicName, await fetchFile(music))
     }
 
+    const mergeClips = clips.map((c, i) => ({
+      inputName: inputNames[i],
+      trimStart: c.trimStart,
+      trimEnd: c.trimEnd,
+      hasAudio: c.hasAudio,
+    }))
     const outputName = 'merged.mp4'
-    const args = buildMergeArgs(
-      clips.map((c, i) => ({ inputName: inputNames[i], trimStart: c.trimStart, trimEnd: c.trimEnd, hasAudio: c.hasAudio })),
-      targetWidth,
-      targetHeight,
-      musicName,
-      musicVolume,
-      outputName,
-      transition,
-    )
-
-    const cleanup = async () => {
-      for (const name of inputNames) await ffmpeg.deleteFile(name).catch(() => {})
-      if (musicName) await ffmpeg.deleteFile(musicName).catch(() => {})
-      await ffmpeg.deleteFile(outputName).catch(() => {})
-    }
 
     // El "progress" que reporta ffmpeg.wasm no es confiable en un filtro tan
     // complejo como este (varios clips + transición) — llega a 100% mucho
@@ -297,32 +291,97 @@ export function useFfmpeg() {
     const expectedDuration = computeMergeOutputDuration(clips, transition)
     const TIME_RE = /time=(\d+):(\d+):(\d+\.\d+)/
     useNativeProgress = false
-    const progressTimer = window.setInterval(() => {
-      for (let i = logLines.value.length - 1; i >= Math.max(0, logLines.value.length - 5); i--) {
-        const match = TIME_RE.exec(logLines.value[i])
-        if (match) {
-          const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
-          if (expectedDuration > 0) progress.value = Math.min(0.99, seconds / expectedDuration)
-          break
+    function watchProgress(min: number, max: number) {
+      return window.setInterval(() => {
+        for (let i = logLines.value.length - 1; i >= Math.max(0, logLines.value.length - 5); i--) {
+          const match = TIME_RE.exec(logLines.value[i])
+          if (match) {
+            const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
+            if (expectedDuration > 0) {
+              progress.value = Math.min(max, min + (max - min) * (seconds / expectedDuration))
+            }
+            break
+          }
+        }
+      }, 400)
+    }
+
+    const cleanupNames = [...inputNames]
+    if (musicName) cleanupNames.push(musicName)
+    const cleanup = async () => {
+      for (const name of cleanupNames) await ffmpeg.deleteFile(name).catch(() => {})
+    }
+
+    try {
+      // "Glitch" arma el video (pesado, con docenas de ramas de crop/overlay)
+      // y el audio (liviano, el mismo cruce que usan las otras transiciones)
+      // en DOS pasadas de ffmpeg separadas en vez de una sola, y las mezcla
+      // al final con una tercera pasada rápida ("-c copy", sin recodificar).
+      // Arreglo a un bug real (2026-11-10): mezclando los dos filtros en un
+      // solo paso, el audio de algunos clips se perdía (el video del filtro
+      // de "Glitch" competía por recursos con el audio del mismo clip) — ver
+      // la nota completa en `buildGlitchVideoOnlyArgs`, en commandBuilder.ts.
+      if (transition === 'glitch') {
+        const videoOnlyName = 'merged_video.mp4'
+        const audioOnlyName = 'merged_audio.m4a'
+        cleanupNames.push(videoOnlyName, audioOnlyName, outputName)
+
+        const videoArgs = buildGlitchVideoOnlyArgs(mergeClips, targetWidth, targetHeight, videoOnlyName)
+        let timer = watchProgress(0, 0.85)
+        let exitCode: number
+        try {
+          exitCode = await ffmpeg.exec(videoArgs)
+        } finally {
+          window.clearInterval(timer)
+        }
+        if (exitCode !== 0) {
+          const lastLines = logLines.value.slice(-60).join('\n')
+          throw new Error(`No se pudo unir los videos (código ${exitCode}): ${lastLines}`)
+        }
+
+        const audioArgs = buildMergeAudioOnlyArgs(mergeClips, musicName, musicVolume, audioOnlyName)
+        timer = watchProgress(0.85, 0.97)
+        try {
+          exitCode = await ffmpeg.exec(audioArgs)
+        } finally {
+          window.clearInterval(timer)
+        }
+        if (exitCode !== 0) {
+          const lastLines = logLines.value.slice(-60).join('\n')
+          throw new Error(`No se pudo unir los videos (código ${exitCode}): ${lastLines}`)
+        }
+
+        progress.value = 0.98
+        const muxArgs = buildMuxArgs(videoOnlyName, audioOnlyName, outputName)
+        exitCode = await ffmpeg.exec(muxArgs)
+        if (exitCode !== 0) {
+          const lastLines = logLines.value.slice(-60).join('\n')
+          throw new Error(`No se pudo unir los videos (código ${exitCode}): ${lastLines}`)
+        }
+      } else {
+        cleanupNames.push(outputName)
+        const args = buildMergeArgs(mergeClips, targetWidth, targetHeight, musicName, musicVolume, outputName, transition)
+        const timer = watchProgress(0, 0.99)
+        let exitCode: number
+        try {
+          exitCode = await ffmpeg.exec(args)
+        } finally {
+          window.clearInterval(timer)
+        }
+        if (exitCode !== 0) {
+          const lastLines = logLines.value.slice(-60).join('\n')
+          throw new Error(`No se pudo unir los videos (código ${exitCode}): ${lastLines}`)
         }
       }
-    }, 400)
-
-    let exitCode: number
-    try {
-      exitCode = await ffmpeg.exec(args)
-    } finally {
-      window.clearInterval(progressTimer)
-      useNativeProgress = true
-    }
-    if (exitCode !== 0) {
+    } catch (err) {
       await cleanup()
-      const lastLines = logLines.value.slice(-60).join('\n')
-      throw new Error(`No se pudo unir los videos (código ${exitCode}): ${lastLines}`)
+      useNativeProgress = true
+      throw err
     }
 
     const data = await ffmpeg.readFile(outputName)
     await cleanup()
+    useNativeProgress = true
     progress.value = 1
 
     const bytes = data instanceof Uint8Array ? new Uint8Array(data) : data

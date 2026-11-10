@@ -804,3 +804,162 @@ export function buildMergeArgs(
   args.push('-c:v', 'libx264', '-preset', 'ultrafast', ...bitrateCapArgs(outputW, outputH), '-c:a', 'aac', outputName)
   return args
 }
+
+/**
+ * "Glitch" en DOS pasadas separadas (video por un lado, audio por otro,
+ * mezclados recién al final) — arreglo a un bug encontrado 2026-11-10: con
+ * "Glitch" (y SOLO con "Glitch" — confirmado por el usuario que "Barrido" y
+ * "sin efecto" con los MISMOS clips salen con el audio bien) el audio de
+ * algunos clips se perdía por completo y el resto quedaba desfasado,
+ * sonando encima del clip equivocado. Se armaron clips sintéticos con un
+ * tono distinto por clip para poder MEDIR exactamente qué pasaba (en vez de
+ * solo "escuchar"): el audio del filtro de un solo paso salía ~6s más corto
+ * de lo que debía (justo la duración de un clip completo), aunque el VIDEO
+ * sí salía completo y bien armado. O sea, el filtro de audio en sí (el
+ * mismo "acrossfade" encadenado que usan las otras 7 transiciones sin
+ * problema) está bien — lo que falla es específico de mezclar ese audio
+ * EN EL MISMO filtergraph que el video de "Glitch", que por lejos es el
+ * más pesado (~12-16 ramas de crop/overlay por unión, con "split" repetido
+ * muchas veces sobre el mismo clip de entrada). Se probó primero subir
+ * "-thread_queue_size" en cada input (arreglo típico para este tipo de
+ * problema) y NO alcanzó — el audio seguía saliendo corto exactamente
+ * igual. En vez de seguir adivinando la causa exacta dentro de ffmpeg, se
+ * separan los dos filtros en pasadas de ffmpeg independientes (el video
+ * pesado de "Glitch" por un lado, sin audio; el audio liviano por otro,
+ * igual al de las otras transiciones) y se mezclan al final con un tercer
+ * paso rápido ("-c copy", sin recodificar) — así el audio nunca compite por
+ * recursos con el filtro de video más pesado. Las otras 7 transiciones y
+ * "Ninguna" siguen con `buildMergeArgs` de una sola pasada, ya confirmado
+ * que ahí nunca pasó este problema.
+ */
+export function buildGlitchVideoOnlyArgs(
+  clips: MergeClipInput[],
+  targetWidth: number,
+  targetHeight: number,
+  outputName: string,
+): string[] {
+  const args: string[] = []
+  for (const clip of clips) {
+    args.push('-ss', clip.trimStart.toFixed(3), '-to', clip.trimEnd.toFixed(3), '-i', clip.inputName)
+  }
+
+  const outputW = Math.max(2, Math.round(targetWidth))
+  const outputH = Math.max(2, Math.round(targetHeight))
+  let w = outputW
+  let h = outputH
+
+  // Mismo tope de memoria que en `buildMergeArgs` (ver esa función para el
+  // detalle completo) — se repite acá porque esta pasada ahora construye el
+  // video de "Glitch" por su cuenta, sin pasar por `buildMergeArgs`.
+  const BASE_SAFE_AREA = 960 * 540
+  const BASELINE_TRANSITIONS = 3
+  const MIN_AREA = 480 * 270
+  const transitionsCount = Math.max(1, clips.length - 1)
+  let safeArea = BASE_SAFE_AREA
+  if (transitionsCount > BASELINE_TRANSITIONS) {
+    safeArea = Math.max(MIN_AREA, Math.round((BASE_SAFE_AREA * BASELINE_TRANSITIONS) / transitionsCount))
+  }
+  const area = w * h
+  if (area > safeArea) {
+    const scale = Math.sqrt(safeArea / area)
+    w = Math.max(2, Math.round(w * scale))
+    h = Math.max(2, Math.round(h * scale))
+  }
+
+  const FPS = 30
+  const videoChains = clips.map(
+    (_, i) =>
+      `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fps=${FPS},setsar=1[v${i}]`,
+  )
+
+  const durations = clips.map((c) => c.trimEnd - c.trimStart)
+  const td = Math.min(TRANSITION_DURATION, Math.max(0.05, Math.min(...durations) * 0.4))
+
+  const transitionChains: string[] = []
+  let prevVideoLabel = 'v0'
+  let cumulative = durations[0]
+  for (let i = 1; i < clips.length; i++) {
+    const offset = Math.max(0, cumulative - td)
+    const { filter: glitchFilter, outLabel } = buildGlitchTransitionFilter(prevVideoLabel, `v${i}`, offset, td, w, h, i)
+    transitionChains.push(glitchFilter)
+    prevVideoLabel = outLabel
+    cumulative = cumulative + durations[i] - td
+  }
+
+  let filter = `${videoChains.join(';')};${transitionChains.join(';')}`
+  let videoLabel = `[${prevVideoLabel}]`
+
+  if (w !== outputW || h !== outputH) {
+    filter += `;${videoLabel}scale=${outputW}:${outputH}[vfinal]`
+    videoLabel = '[vfinal]'
+  }
+
+  args.push('-filter_complex', filter)
+  args.push('-map', videoLabel)
+  args.push('-c:v', 'libx264', '-preset', 'ultrafast', ...bitrateCapArgs(outputW, outputH), '-an', outputName)
+  return args
+}
+
+/**
+ * El audio completo de "Unir videos" (crossfade entre clips + silencio para
+ * los que no traen audio + música de fondo opcional) como pasada propia, sin
+ * nada de video — ver nota en `buildGlitchVideoOnlyArgs` de por qué existe
+ * esto separado. Misma lógica de audio que ya usa `buildMergeArgs` para las
+ * otras transiciones (xfade), solo que acá vive sola.
+ */
+export function buildMergeAudioOnlyArgs(
+  clips: MergeClipInput[],
+  musicInputName: string | null,
+  musicVolume: number,
+  outputName: string,
+): string[] {
+  const args: string[] = []
+  for (const clip of clips) {
+    args.push('-ss', clip.trimStart.toFixed(3), '-to', clip.trimEnd.toFixed(3), '-i', clip.inputName)
+  }
+  if (musicInputName) {
+    args.push('-stream_loop', '-1', '-i', musicInputName)
+  }
+
+  const silenceChains = clips
+    .map((clip, i) =>
+      clip.hasAudio
+        ? null
+        : `anullsrc=channel_layout=stereo:sample_rate=44100:duration=${(clip.trimEnd - clip.trimStart).toFixed(3)}[sil${i}]`,
+    )
+    .filter((c): c is string => c !== null)
+
+  const durations = clips.map((c) => c.trimEnd - c.trimStart)
+  const td = Math.min(TRANSITION_DURATION, Math.max(0.05, Math.min(...durations) * 0.4))
+
+  const chains: string[] = [...silenceChains]
+  let prevAudioLabel = clips[0].hasAudio ? '0:a' : 'sil0'
+  for (let i = 1; i < clips.length; i++) {
+    const aOut = `ax${i}`
+    const thisAudioLabel = clips[i].hasAudio ? `${i}:a` : `sil${i}`
+    chains.push(`[${prevAudioLabel}][${thisAudioLabel}]acrossfade=d=${td.toFixed(3)}[${aOut}]`)
+    prevAudioLabel = aOut
+  }
+
+  let filter = chains.join(';')
+  let audioLabel = `[${prevAudioLabel}]`
+
+  if (musicInputName) {
+    const musicIndex = clips.length
+    filter += `;[${musicIndex}:a]volume=${musicVolume}[bgm];${audioLabel}[bgm]amix=inputs=2:duration=first:normalize=0[aout]`
+    audioLabel = '[aout]'
+  }
+
+  args.push('-filter_complex', filter)
+  args.push('-map', audioLabel)
+  args.push('-c:a', 'aac', '-b:a', '192k', outputName)
+  return args
+}
+
+/** Combina el video (sin audio) y el audio (sin video) de las dos pasadas de
+ * arriba en un solo archivo final, copiando ambos streams tal cual (sin
+ * recodificar — rápido) y cortando al más corto de los dos por si alguno
+ * quedó unos milisegundos más largo que el otro por redondeo. */
+export function buildMuxArgs(videoName: string, audioName: string, outputName: string): string[] {
+  return ['-i', videoName, '-i', audioName, '-map', '0:v', '-map', '1:a', '-c', 'copy', '-shortest', outputName]
+}

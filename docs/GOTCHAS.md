@@ -3,6 +3,44 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Glitch": audio perdido/desfasado — arreglado separando video y audio en pasadas distintas (2026-11-10, mismo día)
+
+Después del arreglo de memoria por cantidad de clips, el usuario probó con 5 clips reales (unos
+con audio, uno sin audio, con música) y reportó: "mezcló las pistas de los videos, unos salieron
+con audio de otro, y ese otro sin audio". Probó también SIN transición y con "Barrido" (xfade) —
+ambos casos con los MISMOS clips salieron bien, solo "Glitch" fallaba.
+
+Para medir exactamente qué pasaba (en vez de solo escuchar el resultado) se armaron 5 clips
+sintéticos con un tono de audio DISTINTO cada uno (220/330/440/550 Hz, uno de ellos sin pista de
+audio) y se analizó el audio del resultado con un Goertzel (detector de frecuencia) por tramos de
+tiempo. Con "Glitch": el audio salía **6 segundos más corto** que el video (el video sí salía
+completo, 27.6s) — el tono del segundo clip desaparecía por completo y todo lo que venía después
+quedaba corrido, sonando sobre el clip equivocado, con el último clip sin audio al final (la
+pista se queda corta). Con "Barrido" o sin transición, los mismos clips con el mismo análisis
+salían perfectos.
+
+Se probó primero subir `-thread_queue_size` en cada input (arreglo típico cuando un filtro de
+video muy pesado compite con su propio audio por el demuxer) — NO alcanzó, el audio seguía
+saliendo exactamente igual de corto. El filtro de audio en sí (el mismo `acrossfade` encadenado
+que usan las otras 7 transiciones sin problema) está bien — lo que falla es específico de
+mezclarlo en el MISMO filtergraph que el video de "Glitch", que por lejos es el más complejo
+(~12-16 ramas de crop/overlay por unión, con "split" repetido muchas veces sobre el mismo clip).
+
+**Arreglo:** para "Glitch" (solo para esa transición — las otras 7 y "Ninguna" siguen igual,
+en un solo paso, ya confirmadas sin este problema), el video y el audio ahora se construyen en
+DOS pasadas de ffmpeg separadas (el video pesado de "Glitch" por un lado, sin audio; el audio —
+crossfade + silencio + música — por otro, liviano) y se mezclan al final con una tercera pasada
+rápida (`-c copy`, sin recodificar). Así el audio nunca compite por recursos con el filtro de
+video más pesado. Funciones nuevas en `commandBuilder.ts`: `buildGlitchVideoOnlyArgs`,
+`buildMergeAudioOnlyArgs`, `buildMuxArgs` — `buildMergeArgs` (una sola pasada) queda intacta y
+se sigue usando para todo lo demás.
+
+Verificado con el mismo set de clips de tono distinguible, tanto llamando `runMerge` directo
+como con el flujo completo de la UI (subir 5 clips, elegir "Glitch", unir): audio y video salen
+con la misma duración exacta (27.6s) y cada tono/silencio cae en el tramo que le corresponde, sin
+pérdidas ni desfases. También se volvió a probar "Barrido" con el mismo código (camino sin tocar)
+para confirmar que no se rompió nada ahí. Falta que el usuario confirme con sus clips reales.
+
 ## "Glitch": OOM de nuevo con 5 clips, tope ahora depende de cuántos clips hay (2026-11-10, mismo día)
 
 El usuario confirmó el arreglo anterior en su iPhone (3 clips, con y sin música, OK). Pero con
