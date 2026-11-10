@@ -3,45 +3,50 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
-## Transición "Glitch" — DESHABILITADA, se cuelga en ffmpeg.wasm (2026-11-09)
+## Transición "Glitch" — RE-HABILITADA, el "cuelgue" era un bug de mis propias pruebas (2026-11-09)
 
 Después de arreglar el cuelgue del núcleo multi-hilo (nota más abajo), el usuario probó de
 nuevo con sus 5 videos reales (3 de 15s, uno de 10s, uno de 4s) + música + "Glitch": avanzó a
-3% y mostró "No se pudo unir los videos" (ya no colgada — un error real esta vez). El usuario
-mismo probó las demás transiciones con los mismos archivos y SÍ funcionaron — dato clave que
-aisló el problema a "Glitch" específicamente, no al cambio de núcleos.
+3% y mostró "No se pudo unir los videos" (ya no colgada — un error real esta vez). Al investigar
+esto, varias pruebas directas (fuera de la UI, llamando `runMerge` a mano) SÍ se colgaban en
+0% para siempre, con 2, 3 y 5 clips, con y sin música, incluso con el filtro reducido al mínimo
+posible (`BAR_COUNT=1`, `K=1`) — y el mismo filtro corrido en ffmpeg real de esta Mac (no
+ffmpeg.wasm) funcionaba perfecto e instantáneo. Con esa evidencia se sacó "Glitch" del selector.
 
-**Investigación (reproducido directo, sin esperar que el usuario pruebe cada intento):**
-1. Con clips sintéticos reales (no los de color sólido de siempre) y `transition: 'glitch'`,
-   el export se cuelga en 0% para siempre — confirmado con 2, 3 y 5 clips, con y sin música,
-   con duraciones iguales y distintas. Nunca aparece ni un solo "frame=" en el log — se traba
-   ANTES de procesar el primer fotograma, en la etapa de armado del filtro.
-2. **El mismo filtro `-filter_complex`, exportado tal cual con `buildMergeArgs` y corrido en
-   ffmpeg real de esta Mac (no ffmpeg.wasm), funcionó perfecto e instantáneo** (0.46s para 3
-   clips de 3s, salida correcta de 7.8s) — descarta que sea un error de lógica en el filtro:
-   es ffmpeg.wasm específicamente el que no lo puede procesar.
-3. Se probó reducir el tamaño del filtro (`BAR_COUNT` 5→3, `K` de hasta 24→6, hasta un extremo
-   de `BAR_COUNT=1`/`K=1`, el filtro más chico posible con 2 clips) — se cuelga exactamente
-   igual. **Esto descarta que sea un problema de tamaño/cantidad de piezas del filtro** — algo
-   más específico de la combinación `split`+`crop`+`overlay` con `enable` dinámico +
-   `concat` no es compatible con el `ffmpeg.wasm` de un solo hilo usado acá, sea cual sea el
-   motivo exacto (no identificado — necesitaría ir probando qué filtro individual es el que
-   rompe, sacando piezas de a una, cosa que no se alcanzó a hacer esta sesión).
-4. Gotcha propio durante la investigación: al achicar `BAR_COUNT` de 5 a un número menor, los
-   loops de las franjas de fase 1/fase 2 seguían con el rango fijo `[4, 3, 2, 1, 0]` (asumiendo
-   siempre 5 franjas) — con `BAR_COUNT` más chico, `nextA()`/`nextB()` se quedaban sin copias
-   que entregar a mitad de loop y devolvían `undefined`, generando un filtro con la etiqueta
-   literal `undefined` adentro ("Stream specifier 'undefined'"). Arreglado a
-   `for (let i = BAR_COUNT - 1; i >= 0; i--)` — si se vuelve a tocar `BAR_COUNT`, revisar que
-   los loops lo usen en vez de un rango fijo.
+**Pero esa "evidencia" tenía un error metodológico propio, encontrado al retomar la
+investigación a pedido del usuario ("me interesa mucho ese efecto, investiga cómo hacerlo sin
+afectar el rendimiento"):** todas esas pruebas directas llamaban `await inst.load()` A MANO
+ANTES de llamar `inst.runMerge(...)`, para medir tiempos de carga por separado. Pero
+`inst.load()` sin argumentos usa `preferMultiThread=true` por defecto — en un contexto
+"cross-origin isolated" (que el dev server SÍ es, por la cabecera COOP/COEP agregada
+permanentemente, ver nota de abajo), eso cargaba el núcleo MULTI-HILO primero. Como
+`loaded.value` queda en `true` después de esa carga, cuando `runMerge` hacía su propio
+`await load(false)` internamente, el guard `if (loaded.value || loading.value) return` lo
+convertía en un no-op — **`runMerge` terminaba corriendo con el núcleo multi-hilo de todos
+modos**, el mismo que ya se sabía (nota de abajo) que se cuelga con cualquier filtro de varios
+clips. El cuelgue era 100% el bug de multi-hilo ya conocido, disparado por mi propio código de
+prueba, no un problema de "Glitch" en absoluto.
 
-**Decisión:** se sacó "Glitch" del selector en `MergeView.vue` (el código de
-`buildGlitchTransitionFilter` queda intacto en `commandBuilder.ts` por si se retoma más
-adelante) — mejor no ofrecerla que ofrecer algo que se cuelga sin aviso. Si se vuelve a
-intentar: la pista más prometedora es simplificar DE VERDAD la construcción (quizás evitando
-`split` + `enable` dinámico combinados, o probando una técnica totalmente distinta para el
-efecto) y probar cada pieza por separado en ffmpeg.wasm (no solo en ffmpeg nativo) antes de
-armar el filtro completo.
+**Confirmado llamando `runMerge` SIN pre-cargar nada a mano (como lo hace la app real):**
+funcionó de punta a punta — 2 clips (4.8s), 5 clips con proporciones de duración iguales a las
+del usuario + música (4.5s), y de nuevo a través de la UI real completa (arrastrar → elegir
+"Glitch" → exportar), sin ningún error. Se volvió a agregar "Glitch" al selector.
+
+**Lección para la próxima vez que algo "se cuelgue" en una prueba directa (fuera de la UI):**
+si el código de prueba llama `load()` por su cuenta antes de la función real, verificar que no
+esté pisando una decisión de núcleo (single/multi-hilo) que esa función toma internamente —
+mejor nunca pre-cargar a mano, dejar que la función bajo prueba haga su propio `load()` como lo
+haría la UI real, para no introducir un falso positivo así.
+
+Gotcha real (no de pruebas) encontrado en el camino, sigue válido: al achicar `BAR_COUNT` (de 5
+a un número menor) sin querer, los loops de las franjas de fase 1/fase 2 seguían con el rango
+fijo `[4, 3, 2, 1, 0]` (asumiendo siempre 5 franjas) — con `BAR_COUNT` más chico,
+`nextA()`/`nextB()` se quedaban sin copias que entregar a mitad de loop y devolvían
+`undefined`, generando un filtro con la etiqueta literal `undefined` adentro ("Stream
+specifier 'undefined'"). Arreglado a `for (let i = BAR_COUNT - 1; i >= 0; i--)` — si se vuelve
+a tocar `BAR_COUNT`, revisar que los loops lo usen en vez de un rango fijo. Quedó en
+`BAR_COUNT=3`/`K=6` (más liviano que el original 5/hasta 24, sin necesidad real ya que el
+cuelgue no era de tamaño, pero más liviano nunca está de más).
 
 ## Núcleo multi-hilo de ffmpeg.wasm — implementado (2026-11-09)
 

@@ -25,11 +25,6 @@ const clipVideoEls = new Map<number, HTMLVideoElement>()
 const musicFile = ref<File | null>(null)
 const musicVolume = ref(0.25)
 
-// "Glitch" NO está acá a propósito: se cuelga en seco dentro de ffmpeg.wasm
-// (confirmado 2026-11-09, incluso con el filtro más chico posible — no es
-// tamaño ni núcleos, el mismo filtro corre perfecto en ffmpeg de verdad
-// fuera del navegador). El código queda en commandBuilder.ts por si se
-// retoma más adelante — ver GOTCHAS.md antes de volver a intentarlo.
 const TRANSITIONS: { id: TransitionType; label: string }[] = [
   { id: 'none', label: 'Ninguna' },
   { id: 'fade', label: 'Fundido' },
@@ -38,6 +33,7 @@ const TRANSITIONS: { id: TransitionType; label: string }[] = [
   { id: 'circle', label: 'Círculo' },
   { id: 'wipe', label: 'Barrido' },
   { id: 'smooth', label: 'Barrido suave' },
+  { id: 'glitch', label: 'Glitch' },
 ]
 const transition = ref<TransitionType>('none')
 
