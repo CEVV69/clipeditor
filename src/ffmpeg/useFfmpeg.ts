@@ -116,7 +116,7 @@ export function useFfmpeg() {
     if (exitCode !== 0) {
       await ffmpeg.deleteFile(inputName).catch(() => {})
       await ffmpeg.deleteFile(outputName).catch(() => {})
-      const lastLines = logLines.value.slice(-5).join(' | ')
+      const lastLines = logLines.value.slice(-60).join('\n')
       throw new Error(`El procesamiento falló (código ${exitCode}): ${lastLines}`)
     }
 
@@ -148,7 +148,7 @@ export function useFfmpeg() {
     if (exitCode !== 0) {
       await ffmpeg.deleteFile(inputName).catch(() => {})
       await ffmpeg.deleteFile(outputName).catch(() => {})
-      const lastLines = logLines.value.slice(-5).join(' | ')
+      const lastLines = logLines.value.slice(-60).join('\n')
       throw new Error(`El procesamiento falló (código ${exitCode}): ${lastLines}`)
     }
 
@@ -204,7 +204,7 @@ export function useFfmpeg() {
     await ffmpeg.deleteFile(inputName).catch(() => {})
 
     if (!data) {
-      const lastLines = logLines.value.slice(-5).join(' | ')
+      const lastLines = logLines.value.slice(-60).join('\n')
       throw new Error(`No se pudo capturar el fotograma (${String(lastError)}): ${lastLines}`)
     }
 
@@ -317,7 +317,7 @@ export function useFfmpeg() {
     }
     if (exitCode !== 0) {
       await cleanup()
-      const lastLines = logLines.value.slice(-5).join(' | ')
+      const lastLines = logLines.value.slice(-60).join('\n')
       throw new Error(`No se pudo unir los videos (código ${exitCode}): ${lastLines}`)
     }
 
