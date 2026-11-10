@@ -673,15 +673,37 @@ export function buildMergeArgs(
   // tiene mucho menos memoria disponible que un computador). Se bajó a
   // 960×540 de área — valor ya probado con margen real (540×958 anduvo
   // bien en ~21s con el mismo archivo pesado que antes fallaba) — para dar
-  // más colchón en dispositivos con poca memoria. Si vuelve a fallar en
-  // celular con este tope más bajo, el problema ya no es solo de
-  // resolución — revisar si el celular en particular tiene un límite de
-  // memoria por pestaña más bajo todavía (common en iOS Safari).
+  // más colchón en dispositivos con poca memoria.
+  //
+  // Ese tope (960×540) se probó y confirmó con 4 clips (3 uniones) tanto en
+  // celular como en PC/iMac de Claude. Pero con 5 clips (4 uniones) el
+  // usuario reportó "Out of memory" de nuevo en su iMac (Safari) Y en su PC
+  // (Chrome) — Claude NO logró reproducir ese OOM exacto con clips
+  // sintéticos a la misma resolución/duración en su propio navegador
+  // (tampoco en Chrome), así que la causa exacta sigue sin confirmarse del
+  // todo (¿memoria real disponible en esos equipos más baja?, ¿límite de
+  // WASM de Safari más estricto?) — lo que SÍ es consistente con lo ya
+  // documentado es que cada unión agrega ~12-16 ramas de crop/overlay al
+  // mismo filtergraph, así que más clips = más memoria sin importar el
+  // navegador. Mientras no haya forma de confirmar el límite exacto, el
+  // tope de área ahora se achica más cuando hay más de 4 clips (más de 3
+  // uniones), en vez de quedarse fijo — menos nitidez con muchos clips,
+  // pero más margen real. Si el usuario vuelve a reportar OOM con 5+ clips
+  // incluso con esto, bajar el piso (ahora 480×270) o re-pensar el enfoque
+  // (ej. procesar las uniones en varias pasadas de ffmpeg en vez de un solo
+  // filtergraph gigante).
   if (transition === 'glitch') {
-    const SAFE_AREA = 960 * 540
+    const BASE_SAFE_AREA = 960 * 540
+    const BASELINE_TRANSITIONS = 3 // = 4 clips, ya confirmado seguro
+    const MIN_AREA = 480 * 270
+    const transitionsCount = Math.max(1, clips.length - 1)
+    let safeArea = BASE_SAFE_AREA
+    if (transitionsCount > BASELINE_TRANSITIONS) {
+      safeArea = Math.max(MIN_AREA, Math.round((BASE_SAFE_AREA * BASELINE_TRANSITIONS) / transitionsCount))
+    }
     const area = w * h
-    if (area > SAFE_AREA) {
-      const scale = Math.sqrt(SAFE_AREA / area)
+    if (area > safeArea) {
+      const scale = Math.sqrt(safeArea / area)
       w = Math.max(2, Math.round(w * scale))
       h = Math.max(2, Math.round(h * scale))
     }

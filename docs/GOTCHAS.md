@@ -3,6 +3,32 @@
 Historial técnico detallado del proyecto. La memoria de Claude (`project_clipeditor.md`) solo
 tiene el resumen; el detalle completo vive acá.
 
+## "Glitch": OOM de nuevo con 5 clips, tope ahora depende de cuántos clips hay (2026-11-10, mismo día)
+
+El usuario confirmó el arreglo anterior en su iPhone (3 clips, con y sin música, OK). Pero con
+**5 clips** (misma resolución real, 1082×1916, 10-15s c/u, con música) volvió a fallar con
+"Out of memory" — esta vez tanto en su **iMac (Safari)** como en su **PC (Chrome)**, ambos
+computadores de escritorio, no solo celular.
+
+Claude intentó reproducir el error exacto con clips sintéticos a la misma resolución/duración/
+cantidad (5 clips de 12s + música) en su propio navegador (Chromium, vía el panel de Claude) y
+**no logró reproducirlo** — el merge terminó bien, sin error. Esto deja la causa exacta sin
+confirmar del todo: pudo ser memoria real disponible más baja en los equipos del usuario, el
+límite de WASM más estricto de Safari, o alguna diferencia de los archivos reales que los
+sintéticos no replican. Lo que SÍ es consistente con lo ya documentado (cada unión agrega
+~12-16 ramas de crop/overlay al mismo filtergraph) es que más clips = más memoria, sin importar
+el navegador.
+
+**Arreglo (preventivo, sin confirmar del todo por Claude, a la espera de que el usuario lo
+pruebe):** el tope de área de trabajo de "Glitch" (antes fijo en 960×540) ahora se achica más
+cuando hay más de 4 clips (más de 3 uniones) — manteniendo el mismo tope ya confirmado seguro
+para 4 clips o menos, y bajándolo proporcionalmente a medida que hay más uniones, con un piso de
+480×270 para no degradar demasiado con muchos clips. Con 5 clips (1082×1916) el tope queda en
+~469×830 en vez de ~511×905. Verificado por Claude que con este cambio el merge de 5 clips sigue
+funcionando bien (en su propio navegador, donde ya funcionaba antes del cambio) y que la salida
+final sigue conservando la resolución original (1082×1919). Falta que el usuario confirme que
+esto realmente arregla el caso de 5+ clips en SU iMac y PC.
+
 ## "Glitch": la salida final mantiene la resolución original pedida (2026-11-10, mismo día)
 
 El usuario rechazó explícitamente que el archivo final quedara en 960×540 ("Pero así no me
