@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import YoutubeImportPanel from './YoutubeImportPanel.vue'
+import ScreenRecordPanel from './ScreenRecordPanel.vue'
 
 const emit = defineEmits<{ (e: 'selected', file: File): void }>()
 
-const mode = ref<'file' | 'youtube'>('file')
+const mode = ref<'file' | 'youtube' | 'record'>('file')
 const rejectionError = ref('')
 
 // Las fotos de iPhone/Mac quedan en HEIC por defecto — ni el navegador las
@@ -53,6 +54,9 @@ function onDrop(ev: DragEvent) {
       <button type="button" class="mode-tab" :class="{ active: mode === 'youtube' }" @click="mode = 'youtube'">
         Importar de YouTube
       </button>
+      <button type="button" class="mode-tab" :class="{ active: mode === 'record' }" @click="mode = 'record'">
+        Grabar pantalla
+      </button>
     </div>
 
     <label v-if="mode === 'file'" class="dropzone glass" @dragover.prevent @drop="onDrop">
@@ -68,7 +72,9 @@ function onDrop(ev: DragEvent) {
       </div>
     </label>
 
-    <YoutubeImportPanel v-else @selected="(file) => emit('selected', file)" />
+    <YoutubeImportPanel v-else-if="mode === 'youtube'" @selected="(file) => emit('selected', file)" />
+
+    <ScreenRecordPanel v-else @selected="(file) => emit('selected', file)" />
 
     <p v-if="rejectionError" class="error">{{ rejectionError }}</p>
   </div>
